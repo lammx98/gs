@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>GS.MultiTenant</RootNamespace>
+    <Description>Common multi-tenant library encapsulating Finbuckle.MultiTenant with hybrid database routing.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GS.Core\GS.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Finbuckle.MultiTenant.AspNetCore" Version="10.1.1" />
+    <PackageReference Include="Finbuckle.MultiTenant.EntityFrameworkCore" Version="10.1.1" />
+    <PackageReference Include="MassTransit" Version="9.1.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.9" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,50 @@
+# GS local infrastructure (PostgreSQL is external — configure in appsettings).
+#
+# Usage:
+#   docker compose up -d
+#   docker compose down
+#
+# Services:
+#   OTLP (4317)  -> Grafana LGTM (traces, metrics, Grafana UI :3000)
+#   Redis        -> GS.MultiTenant distributed cache (:6379)
+#   RabbitMQ     -> MassTransit / event bus (:5672, management UI :15672)
+
+name: gs
+
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.11.6
+    container_name: gs-otel-lgtm
+    ports:
+      - "4317:4317"   # OTLP gRPC — matches Observability:OpenTelemetry:OtlpEndpoint
+      - "4318:4318"   # OTLP HTTP
+      - "3000:3000"   # Grafana UI (admin / admin on first login)
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: gs-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: gs-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: gs
+      RABBITMQ_DEFAULT_PASS: gs
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

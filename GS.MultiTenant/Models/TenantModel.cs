@@ -26,10 +26,17 @@ public class TenantModel : ITenantInfo
 
     public TenantTier Tier { get; set; } = TenantTier.Basic;
 
-    public string? ConnectionString { get; set; }
+    [JsonPropertyName("usesDedicatedDatabase")]
+    public bool UsesDedicatedDatabase { get; set; }
 
-    [JsonIgnore]
-    public bool UsesDedicatedDatabase => !string.IsNullOrWhiteSpace(ConnectionString);
+    [JsonPropertyName("databaseHost")]
+    public string? DatabaseHost { get; set; }
+
+    [JsonPropertyName("databasePort")]
+    public int? DatabasePort { get; set; }
+
+    [JsonPropertyName("credentialsRef")]
+    public string? CredentialsRef { get; set; }
 
     /// <summary>Alias of <see cref="Id"/> — matches documentation terminology.</summary>
     [JsonIgnore]

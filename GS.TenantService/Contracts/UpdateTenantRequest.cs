@@ -11,8 +11,15 @@ public sealed class UpdateTenantRequest
 
     public TenantTier Tier { get; set; } = TenantTier.Basic;
 
-    [MaxLength(2048)]
-    public string? ConnectionString { get; set; }
+    public bool UsesDedicatedDatabase { get; set; }
+
+    [MaxLength(256)]
+    public string? DatabaseHost { get; set; }
+
+    public int? DatabasePort { get; set; }
+
+    [MaxLength(128)]
+    public string? CredentialsRef { get; set; }
 
     public bool IsActive { get; set; } = true;
 }

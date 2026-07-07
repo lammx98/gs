@@ -2,6 +2,7 @@ using Finbuckle.MultiTenant;
 using Finbuckle.MultiTenant.Extensions;
 using Finbuckle.MultiTenant.AspNetCore.Extensions;
 using GS.Core.Caching;
+using GS.Core.Extensions;
 using GS.MultiTenant.Abstractions;
 using GS.MultiTenant.Configuration;
 using GS.MultiTenant.Exceptions;
@@ -38,16 +39,16 @@ public static class MultiTenantServiceCollectionExtensions
             services.AddStackExchangeRedisCache(redis => redis.Configuration = options.RedisConnectionString);
         }
 
-        services.Configure<StaleWhileRevalidateCacheOptions>(cache =>
+        services.Configure<LayeredCacheOptions>(cache =>
         {
-            cache.AbsoluteExpiration = options.CacheAbsoluteExpiration;
-            cache.StaleThreshold = options.CacheStaleThreshold;
+            cache.DefaultExpiration = options.CacheAbsoluteExpiration;
         });
 
-        services.AddMemoryCache();
+        services.AddGsLayeredCache();
         services.TryAddSingleton<ITenantBypassService, TenantBypassService>();
         services.TryAddScoped<ICurrentTenantAccessor, CurrentTenantAccessor>();
-        services.TryAddSingleton<StaleWhileRevalidateCache<TenantModel>>();
+        services.TryAddSingleton<IConnectionStringResolver, PostgreSqlConnectionStringResolver>();
+        services.TryAddSingleton<ITenantResolutionService, TenantResolutionService>();
 
         services.AddHttpClient<ITenantConfigurationClient, HttpTenantConfigurationClient>(client =>
         {

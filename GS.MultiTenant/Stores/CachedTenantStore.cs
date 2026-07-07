@@ -1,25 +1,15 @@
 using GS.MultiTenant.Abstractions;
-using GS.MultiTenant.Configuration;
 using GS.MultiTenant.Models;
-using GS.Core.Caching;
-using Microsoft.Extensions.Options;
 
 namespace GS.MultiTenant.Stores;
 
 public sealed class CachedTenantStore : Finbuckle.MultiTenant.Abstractions.IMultiTenantStore<TenantModel>
 {
-    private readonly ITenantConfigurationClient _client;
-    private readonly StaleWhileRevalidateCache<TenantModel> _cache;
-    private readonly MultiTenantOptions _options;
+    private readonly ITenantResolutionService _tenantResolution;
 
-    public CachedTenantStore(
-        ITenantConfigurationClient client,
-        StaleWhileRevalidateCache<TenantModel> cache,
-        IOptions<MultiTenantOptions> options)
+    public CachedTenantStore(ITenantResolutionService tenantResolution)
     {
-        _client = client;
-        _cache = cache;
-        _options = options.Value;
+        _tenantResolution = tenantResolution;
     }
 
     public Task<bool> AddAsync(TenantModel tenantInfo) =>
@@ -32,29 +22,25 @@ public sealed class CachedTenantStore : Finbuckle.MultiTenant.Abstractions.IMult
             return false;
         }
 
-        await _cache.SetAsync(GetCacheKey(tenantInfo.Id), tenantInfo);
+        await _tenantResolution.SetAsync(tenantInfo);
         return true;
     }
 
-    public Task<bool> RemoveAsync(string identifier)
+    public async Task<bool> RemoveAsync(string identifier)
     {
-        _cache.Remove(GetCacheKey(identifier));
-        return Task.FromResult(true);
+        await _tenantResolution.ClearAsync(identifier);
+        return true;
     }
 
     public Task<TenantModel?> GetByIdentifierAsync(string identifier) =>
         GetAsync(identifier);
 
     public Task<TenantModel?> GetAsync(string identifier) =>
-        _cache.GetOrCreateAsync(
-            GetCacheKey(identifier),
-            ct => _client.GetTenantAsync(identifier, ct));
+        _tenantResolution.GetByTenantCodeAsync(identifier);
 
     public Task<IEnumerable<TenantModel>> GetAllAsync() =>
         Task.FromResult(Enumerable.Empty<TenantModel>());
 
     public Task<IEnumerable<TenantModel>> GetAllAsync(int take, int skip) =>
         Task.FromResult(Enumerable.Empty<TenantModel>());
-
-    private static string GetCacheKey(string identifier) => $"tenant:{identifier}";
 }

@@ -6,13 +6,13 @@ Thư viện common multi-tenant cho hệ sinh thái GS microservices. Đóng gó
 
 | Mục tiêu | Mô tả |
 |----------|-------|
-| **Encapsulation** | Che giấu sự phức tạp của Finbuckle và routing DB khỏi business code |
-| **Consistency** | Mọi microservice dùng chung chuẩn định danh, cache, propagation |
-| **Plug & Play** | Khởi tạo qua extension methods ngắn gọn tại `Program.cs` |
+| **Encapsulation** | Che giấu Finbuckle và routing DB khỏi business code |
+| **Consistency** | Mọi microservice dùng chung chuẩn tenant, cache, propagation |
+| **Plug & Play** | Khởi tạo qua extension methods tại `Program.cs` |
 
 ## Phụ thuộc
 
-- **GS.Core** — primitives dùng chung: `HttpStatusException`, `AmbientContext<T>`, `StaleWhileRevalidateCache<T>`
+- **GS.Core** — `ILayeredCache`, `HttpStatusException`, `AmbientContext`
 - **Finbuckle.MultiTenant** — tenant resolution engine
 - **EF Core** — hybrid `TenantBaseDbContext`
 - **MassTransit** (tùy chọn) — lan truyền tenant qua message bus
@@ -21,203 +21,206 @@ Thư viện common multi-tenant cho hệ sinh thái GS microservices. Đóng gó
 
 ## Phân biệt TenantCode vs TenantId
 
-Đây là hai lớp định danh khác nhau trong luồng multi-tenant:
-
 | Thuộc tính | Ví dụ | Nguồn | Vai trò |
 |------------|-------|-------|---------|
-| **TenantCode** (`Identifier`) | `acme` | Subdomain `acme.domain.com`, header, JWT claim | Định danh **bên ngoài**, dùng để **resolve** tenant |
-| **TenantId** (`Id`) | `3fa85f64-...` | Tenant Service trả về | Khóa **nội bộ** (GUID), dùng cho DB filter, FK, log |
+| **TenantCode** | `acme` | Subdomain, header `X-Tenant-Id`, JWT | Định danh **bên ngoài**, dùng để **resolve** |
+| **TenantId** | `3fa85f64-...` | TenantService trả về | Khóa **nội bộ** (GUID), DB filter, FK |
 
-**Luồng xử lý:**
+**Luồng resolve tenant:**
 
 ```
-URL acme.domain.com
-    → Finbuckle HostStrategy trích "acme" (tenantCode)
-    → CachedTenantStore lookup theo tenantCode
-    → HttpTenantConfigurationClient gọi Tenant Service
-    → Nhận TenantModel đầy đủ (TenantId, Tier, ConnectionString...)
-    → Cache lại, dùng cho request hiện tại
-```
-
-Trong code, dùng alias cho dễ đọc:
-
-```csharp
-tenant.TenantCode  // == Identifier  — mã từ URL
-tenant.TenantId    // == Id          — GUID nội bộ
-```
-
-Inject qua `ICurrentTenantAccessor`:
-
-```csharp
-accessor.TenantCode  // "acme"
-accessor.TenantId    // "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+Request (header / subdomain / JWT claim)
+    → Finbuckle strategy trích tenantCode
+    → ITenantResolutionService.GetByTenantCodeAsync
+        → ILayeredCache (Memory → Redis)
+        → miss: GET TenantService /api/tenants/{tenantCode}
+        → cache tenant:code:{code} + tenant:id:{id}
+    → IConnectionStringResolver build PostgreSQL connection string
+    → TenantBaseDbContext route DB
 ```
 
 ---
 
-## TenantServiceBaseUrl dùng để làm gì?
+## TenantModel
 
-`TenantServiceBaseUrl` là **địa chỉ gốc** của **Tenant Service / Identity Service** nội bộ — service quản lý master data tenant.
+```json
+{
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "tenantCode": "acme",
+  "tenantName": "Acme Clinic",
+  "tier": 0,
+  "usesDedicatedDatabase": false,
+  "databaseHost": null,
+  "databasePort": null,
+  "credentialsRef": null
+}
+```
 
-Microservice **không** tự lưu connection string, tier hay cấu hình tenant. Khi request đến, lib chỉ biết `tenantCode` (từ URL/header/JWT). Lib sẽ:
+| Field | Mô tả |
+|-------|-------|
+| `tier` | `Basic` (0), `Standard` (1), `Premium` (2) — gói cước |
+| `usesDedicatedDatabase` | `true` → dedicated DB; `false` → shared DB + filter |
+| `databaseHost` | Host PostgreSQL (bắt buộc khi `usesDedicatedDatabase = true`) |
+| `credentialsRef` | Key tra `DatabaseCredentials:{ref}` trong appsettings service |
 
-1. Gọi `GET {TenantServiceBaseUrl}{TenantServiceEndpointTemplate}`  
-   Ví dụ: `GET https://tenant-service.internal/api/tenants/acme`
-2. Nhận JSON → map vào `TenantModel` (TenantId, TenantName, Tier, ConnectionString...)
-3. **Cache** kết quả (Memory/Redis) — không gọi lại mỗi request (FR02, NFR01)
+**Lưu ý:** Service **không** nhận connection string từ TenantService. Service tự build CS từ `databaseHost` + naming template + credentials local.
 
-Nếu **để trống** `TenantServiceBaseUrl` (dev/local): lib tạo `TenantModel` tạm với `TenantId = TenantCode = mã vừa resolve`, tier Basic, không connection string riêng.
+---
 
-Xem project **[GS.TenantService](../GS.TenantService/readme.md)** — service mẫu chạy tại `http://localhost:5100`.
+## Hybrid Database Routing
+
+`TenantBaseDbContext` + `IConnectionStringResolver` (`PostgreSqlConnectionStringResolver`):
+
+| `usesDedicatedDatabase` | Routing |
+|-------------------------|---------|
+| `false` | `SharedDatabaseConnectionString` + global filter `tenant_id` |
+| `true` | Build CS: `Host` + `{tenantCode}_{serviceName}` + `DatabaseCredentials` |
+
+Entity implement `ITenantEntity` để tự động áp global query filter trên shared DB.
+
+### Config service nghiệp vụ
 
 ```json
 {
   "MultiTenant": {
-    "TenantServiceBaseUrl": "https://tenant-service.internal",
-    "TenantServiceEndpointTemplate": "/api/tenants/{tenantCode}"
+    "ServiceDatabaseName": "identity",
+    "DatabaseNamingTemplate": "{tenantCode}_{serviceName}",
+    "SharedDatabaseConnectionString": "Host=localhost;Port=5432;Database=hms_identity_shared;Username=postgres;Password=...",
+    "TenantServiceBaseUrl": "http://localhost:5100",
+    "UseRedisCache": true,
+    "RedisConnectionString": "localhost:6379",
+    "CacheAbsoluteExpiration": "00:30:00",
+    "RequireTenant": true
+  },
+  "DatabaseCredentials": {
+    "default": { "Username": "postgres", "Password": "..." }
   }
 }
 ```
 
----
+| Config | Bắt buộc | Ghi chú |
+|--------|----------|---------|
+| `ServiceDatabaseName` | Có (nếu có dedicated tenant) | Tên DB: `acme_identity` |
+| `SharedDatabaseConnectionString` | Có | CS shared DB |
+| `TenantServiceBaseUrl` | Khuyến nghị | Để trống = tenant giả (dev only) |
+| `TenantServiceEndpointTemplate` | Không | Default `/api/tenants/{tenantCode}` |
+| `TenantHeaderName` | Không | Default `X-Tenant-Id` |
+| `JwtTenantClaimType` | Không | Default `tenant_id` |
+| `HostTemplate` | Không | Default `__tenant__.*` (subdomain) |
+| `UseRedisCache` | Không | Bật Redis distributed cache |
 
-## Yêu cầu chức năng
+### Subdomain (`acme.hms.com`)
 
-### FR01 — Tenant Resolution
+```json
+"HostTemplate": "__tenant__.*"
+```
 
-Tự động trích xuất tenant từ:
-
-| Nguồn | Giá trị resolve | Cơ chế |
-|-------|-----------------|--------|
-| HTTP Header | tenantCode hoặc tenantId | `X-Tenant-Id` (API Gateway) |
-| URL | **tenantCode** | Subdomain `tenantCode.domain.com` |
-| JWT | tenantId (thường là GUID) | Claim `tenant_id` |
-| Message Broker | tenantId / tenantCode | Header `X-Tenant-Id` khi consume |
-
-Middleware `TenantConsistencyMiddleware` kiểm tra **khớp tenant** giữa Header, URL và JWT. Ném exception rõ ràng khi thiếu hoặc xung đột:
-
-| Exception | HTTP Status |
-|-----------|-------------|
-| `TenantNotResolvedException` | 400 |
-| `TenantMismatchException` | 401 |
-| `TenantNotFoundException` | 404 |
-
-### FR02 — Tenant Store & Caching
-
-- Model chuẩn: `TenantModel` (`TenantId`, `TenantCode`, `TenantName`, `Tier`, `ConnectionString`)
-- `HttpTenantConfigurationClient` gọi Tenant Service / Identity Service
-- `CachedTenantStore` cache qua **Memory + Redis** (tùy chọn), dùng `StaleWhileRevalidateCache` từ GS.Core — **không gọi Tenant Service mỗi request**
-
-### FR03 — Hybrid Database Routing
-
-`TenantBaseDbContext` (kế thừa bởi mọi service):
-
-- **VIP** (`ConnectionString` có giá trị) → kết nối Dedicated DB
-- **Basic** (`ConnectionString` null/rỗng) → Shared DB + global query filter `WHERE tenant_id = current_tenant`
-
-Entity implement `ITenantEntity` để tự động áp filter.
-
-### FR04 — Context Propagation
-
-| Kênh | API |
-|------|-----|
-| HTTP → HTTP | `AddTenantPropagation()` trên `HttpClient` |
-| Event Bus | `UseTenantPropagation()` + `UseTenantPublishPropagation()` (MassTransit) |
-| Worker thủ công | `TenantMessageContext.SetTenant(id)` / `TenantMessageContextInitializer` |
+Dev local: thêm `127.0.0.1 acme.localhost` vào hosts, gọi `http://acme.localhost:5193/...`
 
 ---
 
-## Yêu cầu phi chức năng
+## ITenantResolutionService
 
-| ID | Mô tả | Triển khai |
-|----|-------|------------|
-| NFR01 | Latency phân giải tenant & cache ≤ 5ms | Cache in-memory trước, Redis sau, SWR background refresh |
-| NFR02 | Không bypass filter tenant tùy tiện | `ITenantBypassService` + `ApplyTenantPolicy()` |
-| NFR03 | Chịu lỗi khi Tenant Service sập | Stale-while-revalidate: dùng cache cũ khi refresh thất bại |
+Service trung tâm lấy cấu hình tenant, dùng `ILayeredCache` strategy **MemoryThenRedis**:
+
+| Method | Mô tả |
+|--------|-------|
+| `GetByTenantCodeAsync(code)` | Cache → TenantService API → cache cả code + id key |
+| `GetByTenantIdAsync(id)` | Chỉ đọc cache (key `tenant:id:{id}`) |
+| `SetAsync(tenant)` | Ghi cache thủ công |
+| `ClearAsync(code, id?)` | Xóa cache |
+
+Cache keys:
+- `tenant:code:{tenantCode}`
+- `tenant:id:{tenantId}`
+
+`CachedTenantStore` (Finbuckle) delegate sang `ITenantResolutionService`.
+
+### TenantService dependency
+
+| Tình huống | Kết quả |
+|------------|---------|
+| Cache hit | Không gọi TenantService |
+| Cache miss | Gọi TenantService 1 lần, cache lại |
+| TenantService down + đã cache | Vẫn chạy |
+| TenantService down + chưa cache | Tenant not found |
+| `TenantServiceBaseUrl` trống | Tenant giả (dev), không gọi API |
+
+Khuyến nghị production: bật `UseRedisCache` để cache sống qua pod restart.
+
+---
+
+## Tenant Resolution Strategies (Finbuckle)
+
+Tất cả strategy được đăng ký; chỉ active khi request có dữ liệu tương ứng:
+
+| Nguồn | Cơ chế |
+|-------|--------|
+| HTTP Header | `X-Tenant-Id` (configurable) |
+| Subdomain | `HostTemplate`, default `__tenant__.*` |
+| JWT | Claim `tenant_id` (sau `UseAuthentication`) |
+| Message | `X-Tenant-Id` header khi consume |
+
+`TenantConsistencyMiddleware` so khớp các nguồn **có mặt** trong request. Chỉ cần 1 nguồn hợp lệ là đủ; nhiều nguồn khác nhau → `401 TenantMismatch`.
 
 ---
 
 ## Cài đặt nhanh
 
-### 1. `appsettings.json`
-
-```json
-{
-  "MultiTenant": {
-    "TenantHeaderName": "X-Tenant-Id",
-    "JwtTenantClaimType": "tenant_id",
-    "HostTemplate": "__tenant__.*",
-    "TenantServiceBaseUrl": "https://tenant-service.internal",
-    "TenantServiceEndpointTemplate": "/api/tenants/{tenantCode}",
-    "SharedDatabaseConnectionString": "Server=...;Database=shared;",
-    "UseRedisCache": true,
-    "RedisConnectionString": "localhost:6379",
-    "RequireTenant": true
-  }
-}
-```
-
-### 2. `Program.cs`
+### `Program.cs`
 
 ```csharp
+using GS.Core.Extensions;
 using GS.MultiTenant.Extensions;
 
+builder.Services.AddGsJwtAuthentication(builder.Configuration);
 builder.Services.AddMultiTenantServices(builder.Configuration);
-// hoặc alias: builder.Services.AddClinicMultiTenant(builder.Configuration);
 
-builder.Services.AddHttpClient("InternalApi")
-    .AddTenantPropagation();
-
-builder.Services.AddMassTransit(x =>
-{
-    x.UseTenantPropagation();
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        cfg.UseTenantPublishPropagation(context);
-    });
-});
+builder.Services.AddTenantDbContext<AppDbContext>((options, cs) =>
+    options.UseNpgsql(cs));
 
 var app = builder.Build();
-app.UseTenantResolution();
+
+app.UseAuthentication();       // JWT trước
+app.UseTenantResolution();     // MultiTenant + consistency check
+app.UseAuthorization();
 ```
 
-### 3. DbContext
+### DbContext
 
 ```csharp
 public class AppDbContext : TenantBaseDbContext
 {
     public AppDbContext(
         IMultiTenantContextAccessor accessor,
-        IOptions<MultiTenantOptions> options,
-        DbContextOptions<AppDbContext> dbOptions)
-        : base(accessor, options, dbOptions) { }
+        IConnectionStringResolver resolver,
+        DbContextOptions<AppDbContext> options)
+        : base(accessor, resolver, options) { }
 
-    protected override void ConfigureProvider(DbContextOptionsBuilder options, string connectionString)
-        => options.UseSqlServer(connectionString);
+    protected override void ConfigureProvider(DbContextOptionsBuilder options, string cs)
+        => options.UseNpgsql(cs);
 }
 ```
 
-### 4. Business logic
+### Entity
 
 ```csharp
-public class OrderService(ICurrentTenantAccessor tenant)
+public class Order : ITenantEntity
 {
-    public void ValidateFeature()
-    {
-        if (tenant.Tier == TenantTier.Basic)
-            throw new InvalidOperationException("Feature not available on Basic plan.");
-    }
+    public string TenantId { get; set; } = string.Empty;
+    // ...
 }
 ```
 
-### 5. Admin bypass (job tổng hợp)
+---
 
-```csharp
-using (bypassService.EnableBypass())
-{
-    var all = db.Orders.ApplyTenantPolicy(bypassService).ToList();
-}
-```
+## Context Propagation
+
+| Kênh | API |
+|------|-----|
+| HTTP → HTTP | `AddTenantPropagation()` trên `HttpClient` |
+| Event Bus | `UseTenantPropagation()` + `UseTenantPublishPropagation()` (MassTransit) |
+| Worker | `TenantMessageContext.SetTenant(id)` |
 
 ---
 
@@ -225,24 +228,14 @@ using (bypassService.EnableBypass())
 
 ```
 GS.MultiTenant/
-├── Abstractions/       ICurrentTenantAccessor, ITenantBypassService, ITenantEntity
+├── Abstractions/       ICurrentTenantAccessor, ITenantResolutionService, IConnectionStringResolver
 ├── Configuration/      MultiTenantOptions
-├── Data/               TenantBaseDbContext, TenantQueryableExtensions
-├── Exceptions/         TenantNotResolved, TenantMismatch, TenantNotFound
-├── Extensions/         DI, middleware, DbContext, MassTransit
-├── Http/               TenantPropagationDelegatingHandler
-├── Messaging/          TenantMessageContext, MassTransit filters
+├── Data/               TenantBaseDbContext
+├── Services/           TenantResolutionService, PostgreSqlConnectionStringResolver
+├── Stores/             CachedTenantStore, HttpTenantConfigurationClient
 ├── Middleware/         TenantConsistencyMiddleware
 ├── Models/             TenantModel, TenantTier
-├── Resolution/         TenantIdentifierExtractor
-├── Services/           CurrentTenantAccessor, TenantBypassService
-└── Stores/             CachedTenantStore, HttpTenantConfigurationClient
-
-GS.Core/ (dùng chung)
-├── Ambient/            AmbientContext<T>
-├── Caching/            StaleWhileRevalidateCache<T>
-├── Exceptions/         HttpStatusException
-└── Middleware/         HttpStatusExceptionMiddleware
+└── Extensions/         DI, middleware, DbContext, MassTransit
 ```
 
 ---
@@ -251,25 +244,12 @@ GS.Core/ (dùng chung)
 
 | Method | Mô tả |
 |--------|-------|
-| `AddMultiTenantServices()` | Đăng ký toàn bộ DI |
-| `AddClinicMultiTenant()` | Alias theo tài liệu DX01 |
+| `AddMultiTenantServices()` | Đăng ký toàn bộ DI (cache, resolver, Finbuckle) |
 | `UseTenantResolution()` | Pipeline middleware + Finbuckle |
-| `AddTenantDbContext<T>()` | Đăng ký DbContext hybrid |
+| `AddTenantDbContext<T>()` | DbContext hybrid với connection string đã resolve |
 | `AddTenantPropagation()` | Gắn tenant header vào HttpClient |
-| `UseTenantPropagation()` | MassTransit consume filter |
-| `UseTenantPublishPropagation()` | MassTransit publish filter |
-
----
-
-## CAP (DotNetCore.CAP)
-
-Chưa tích hợp sẵn. Trong CAP subscriber, gọi:
-
-```csharp
-using var scope = TenantMessageContextInitializer.InitializeFromHeaders(headers);
-```
-
-để khôi phục ngữ cảnh tenant từ message headers.
+| `ITenantResolutionService` | Lấy/cache tenant config |
+| `IConnectionStringResolver` | Build PostgreSQL CS từ TenantModel |
 
 ---
 

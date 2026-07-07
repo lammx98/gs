@@ -54,7 +54,11 @@ public sealed class TenantManagementService : ITenantManagementService
             throw new HttpStatusException($"Tenant code '{tenantCode}' already exists.", 409);
         }
 
-        ValidateTierConnectionString(request.Tier, request.ConnectionString);
+        ValidateDatabaseConfig(
+            request.UsesDedicatedDatabase,
+            request.DatabaseHost,
+            request.DatabasePort,
+            request.CredentialsRef);
 
         var entity = new TenantEntity
         {
@@ -62,7 +66,10 @@ public sealed class TenantManagementService : ITenantManagementService
             TenantCode = tenantCode,
             TenantName = request.TenantName.Trim(),
             Tier = request.Tier,
-            ConnectionString = string.IsNullOrWhiteSpace(request.ConnectionString) ? null : request.ConnectionString.Trim(),
+            UsesDedicatedDatabase = request.UsesDedicatedDatabase,
+            DatabaseHost = NormalizeOptional(request.DatabaseHost),
+            DatabasePort = request.DatabasePort,
+            CredentialsRef = NormalizeOptional(request.CredentialsRef),
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -82,11 +89,18 @@ public sealed class TenantManagementService : ITenantManagementService
             return null;
         }
 
-        ValidateTierConnectionString(request.Tier, request.ConnectionString);
+        ValidateDatabaseConfig(
+            request.UsesDedicatedDatabase,
+            request.DatabaseHost,
+            request.DatabasePort,
+            request.CredentialsRef);
 
         entity.TenantName = request.TenantName.Trim();
         entity.Tier = request.Tier;
-        entity.ConnectionString = string.IsNullOrWhiteSpace(request.ConnectionString) ? null : request.ConnectionString.Trim();
+        entity.UsesDedicatedDatabase = request.UsesDedicatedDatabase;
+        entity.DatabaseHost = NormalizeOptional(request.DatabaseHost);
+        entity.DatabasePort = request.DatabasePort;
+        entity.CredentialsRef = NormalizeOptional(request.CredentialsRef);
         entity.IsActive = request.IsActive;
         entity.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -112,11 +126,32 @@ public sealed class TenantManagementService : ITenantManagementService
     private static string NormalizeCode(string tenantCode) =>
         tenantCode.Trim().ToLowerInvariant();
 
-    private static void ValidateTierConnectionString(TenantTier tier, string? connectionString)
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void ValidateDatabaseConfig(
+        bool usesDedicatedDatabase,
+        string? databaseHost,
+        int? databasePort,
+        string? credentialsRef)
     {
-        if (tier == TenantTier.Vip && string.IsNullOrWhiteSpace(connectionString))
+        if (usesDedicatedDatabase)
         {
-            throw new HttpStatusException("VIP tier requires a dedicated ConnectionString.", 400);
+            if (string.IsNullOrWhiteSpace(databaseHost))
+            {
+                throw new HttpStatusException("Dedicated database requires DatabaseHost.", 400);
+            }
+
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(databaseHost)
+            || databasePort.HasValue
+            || !string.IsNullOrWhiteSpace(credentialsRef))
+        {
+            throw new HttpStatusException(
+                "Shared database tenants must not include dedicated database configuration.",
+                400);
         }
     }
 }

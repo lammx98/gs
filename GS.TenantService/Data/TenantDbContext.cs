@@ -19,7 +19,8 @@ public class TenantDbContext : DbContext
             entity.HasIndex(x => x.TenantCode).IsUnique();
             entity.Property(x => x.TenantCode).HasMaxLength(64).IsRequired();
             entity.Property(x => x.TenantName).HasMaxLength(256).IsRequired();
-            entity.Property(x => x.ConnectionString).HasMaxLength(2048);
+            entity.Property(x => x.DatabaseHost).HasMaxLength(256);
+            entity.Property(x => x.CredentialsRef).HasMaxLength(128);
         });
     }
 }

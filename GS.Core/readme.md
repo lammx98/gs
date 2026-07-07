@@ -1,23 +1,26 @@
 # GS.Core
 
-Thư viện **primitives dùng chung** cho toàn bộ hệ sinh thái GS microservices. Cung cấp các building block nhất quán: xử lý lỗi nghiệp vụ, exception HTTP, observability, cache và ngữ cảnh ambient — để mọi service/service lib (như `GS.MultiTenant`) dùng cùng một chuẩn.
+Thư viện **primitives dùng chung** cho toàn bộ hệ sinh thái GS microservices. Cung cấp các building block nhất quán: xử lý lỗi, JWT, cache, MediatR pipeline, observability — để mọi service dùng cùng một chuẩn.
 
 ## Mục tiêu
 
 | Mục tiêu | Mô tả |
 |----------|-------|
-| **Consistency** | Một chuẩn logging, tracing, error handling trên mọi service |
+| **Consistency** | Một chuẩn logging, tracing, error handling, JWT trên mọi service |
 | **Safety** | Result Pattern giúp luồng nghiệp vụ rõ ràng, không throw tung tóe |
 | **Plug & Play** | Khởi tạo qua extension methods ngắn gọn tại `Program.cs` |
-| **Resilience** | Cache stale-while-revalidate giữ service hoạt động khi dependency sập |
+| **Resilience** | Layered cache (Memory + Redis) và SWR cache khi cần |
 
-## Phụ thuộc
+## Phụ thuộc chính
 
 | Package | Vai trò |
 |---------|---------|
 | `Microsoft.AspNetCore.App` | Middleware, MVC extensions |
 | `Serilog.AspNetCore` | Structured logging |
 | `OpenTelemetry.*` | Traces, metrics, OTLP export |
+| `MediatR` + `FluentValidation` | VSA pipeline |
+| `FastEndpoints` | `SendResultAsync` mapping |
+| `Microsoft.AspNetCore.Authentication.JwtBearer` | JWT validation |
 
 ---
 
@@ -25,13 +28,16 @@ Thư viện **primitives dùng chung** cho toàn bộ hệ sinh thái GS microse
 
 ```
 GS.Core/
+├── Auth/               JwtOptions, IJwtTokenService, GsJwtClaimTypes
 ├── Ambient/            AmbientContext<T>
-├── Caching/            StaleWhileRevalidateCache<T>
-├── Configuration/      ObservabilityOptions
+├── Caching/            ILayeredCache, LayeredCache, StaleWhileRevalidateCache<T>
+├── Configuration/      ObservabilityOptions, JwtOptions, LayeredCacheOptions
 ├── Exceptions/         HttpStatusException
 ├── Extensions/         DI & pipeline extensions
+├── Mediation/          ValidationBehavior (MediatR + FluentValidation)
 ├── Middleware/         HttpStatusExceptionMiddleware
-└── Results/            Result, Result<T>, Error
+├── Results/            Result, Result<T>, Error
+└── Security/           IPasswordHasherService
 ```
 
 ---
@@ -44,124 +50,179 @@ GS.Core/
 <ProjectReference Include="..\GS.Core\GS.Core.csproj" />
 ```
 
-### 2. `appsettings.json`
-
-```json
-{
-  "Observability": {
-    "ServiceName": "GS.MyService",
-    "OpenTelemetry": {
-      "Enabled": true,
-      "OtlpEndpoint": "http://localhost:4317",
-      "ExportTraces": true,
-      "ExportMetrics": true
-    }
-  },
-  "Serilog": {
-    "MinimumLevel": {
-      "Default": "Information",
-      "Override": {
-        "Microsoft.AspNetCore": "Warning"
-      }
-    },
-    "WriteTo": [
-      {
-        "Name": "Console",
-        "Args": {
-          "outputTemplate": "[{Timestamp:HH:mm:ss} {Level:u3}] {Application} {Message:lj}{NewLine}{Exception}"
-        }
-      }
-    ]
-  }
-}
-```
-
-### 3. `Program.cs`
+### 2. `Program.cs` (service nghiệp vụ)
 
 ```csharp
 using GS.Core.Extensions;
+using GS.MultiTenant.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddGsObservability();
 
-// ... đăng ký services
+builder.Services.AddGsJwtAuthentication(builder.Configuration);       // validate JWT
+builder.Services.AddGsMediatR(typeof(Program).Assembly);              // VSA pipeline
+builder.Services.AddGsLayeredCache(builder.Configuration);          // optional, MultiTenant tự gọi
+builder.Services.AddMultiTenantServices(builder.Configuration);
+builder.Services.AddFastEndpoints();
 
 var app = builder.Build();
 
 app.UseGsObservability();
-app.UseHttpStatusExceptionHandling();
+app.UseAuthentication();        // JWT trước
+app.UseTenantResolution();      // MultiTenant sau khi JWT đã parse
+app.UseAuthorization();
+app.UseFastEndpoints(c => c.Endpoints.RoutePrefix = "api");
 
 app.RunWithObservability();
 ```
 
+### 3. `Program.cs` (service phát hành token — HMS.Identity)
+
+```csharp
+builder.Services.AddGsJwtAuthentication(builder.Configuration, issueTokens: true);
+```
+
 ---
 
-## Result Pattern (Functional Error Handling)
+## JWT Authentication
 
-Dùng `Result` / `Result<T>` cho **lỗi nghiệp vụ** thay vì throw exception. Giúp luồng code an toàn, dễ đọc và compose qua `Bind` / `Map`.
+Tất cả service dùng **cùng** `Jwt` config để validate token. Chỉ service Identity (hoặc auth service) bật `issueTokens: true`.
 
-### Nguyên tắc
-
-| Loại lỗi | Cách xử lý |
-|----------|------------|
-| **Nghiệp vụ** (chưa thanh toán, không đủ quyền, không tìm thấy) | Trả `Result.Fail(...)` |
-| **Kỹ thuật** (DB down, bug, timeout) | Throw exception |
-| **API boundary** (controller) | `.ToActionResult()` hoặc `.ValueOrThrow()` |
-
-### Ví dụ nghiệp vụ
-
-```csharp
-using GS.Core.Results;
-
-public Result<DispenseOrder> DispenseMedicine(Patient patient)
-{
-    if (!patient.HasPaid)
-    {
-        return Result<DispenseOrder>.Fail(
-            "PaymentRequired",
-            "Bệnh nhân chưa thanh toán, không thể nhận thuốc.",
-            statusCode: 402);
-    }
-
-    if (patient.Prescription is null)
-    {
-        return Result<DispenseOrder>.Fail(Error.NotFound("Không tìm thấy đơn thuốc"));
-    }
-
-    return Result<DispenseOrder>.Success(CreateOrder(patient));
-}
-```
-
-### Railway-oriented (Bind chain)
-
-```csharp
-return await GetPatient(id)
-    .Bind(p => ValidatePayment(p))
-    .Bind(p => CreateDispenseOrder(p));
-```
-
-### Controller
-
-```csharp
-[HttpPost("{id}/dispense")]
-public async Task<ActionResult<DispenseOrder>> Dispense(Guid id)
-{
-    return (await _service.DispenseAsync(id)).ToActionResult();
-}
-```
-
-Response lỗi (HTTP 402):
+### Config
 
 ```json
 {
-  "error": "PaymentRequired",
-  "message": "Bệnh nhân chưa thanh toán, không thể nhận thuốc.",
-  "errors": [
-    { "code": "PaymentRequired", "message": "Bệnh nhân chưa thanh toán, không thể nhận thuốc." }
-  ]
+  "Jwt": {
+    "Issuer": "HMS.Identity",
+    "Audience": "HMS",
+    "SigningKey": "SAME_KEY_ACROSS_ALL_SERVICES",
+    "ExpiresMinutes": 60,
+    "TenantClaimType": "tenant_id"
+  }
 }
 ```
+
+`TenantClaimType` phải khớp `MultiTenant:JwtTenantClaimType`.
+
+### Luồng cross-service
+
+```
+Client → HMS.Identity: login → nhận JWT (sub, email, tenant_id)
+Client → HMS.Clinical:  Authorization: Bearer {token}
+       → AddGsJwtAuthentication validate signature/issuer/audience
+       → GS.MultiTenant đọc claim tenant_id, so khớp header/subdomain
+```
+
+### API
+
+| Method | Mô tả |
+|--------|-------|
+| `AddGsJwtAuthentication(config)` | Đăng ký JWT Bearer validation |
+| `AddGsJwtAuthentication(config, issueTokens: true)` | Thêm `IJwtTokenService` để phát token |
+| `IJwtTokenService.CreateToken(JwtTokenRequest)` | Tạo access token |
+
+---
+
+## MediatR + FluentValidation (VSA)
+
+```csharp
+builder.Services.AddGsMediatR(typeof(Program).Assembly);
+```
+
+Tự động đăng ký:
+- MediatR handlers từ assembly
+- FluentValidation validators
+- `ValidationBehavior` — validation fail → `Result.Fail(Error.Validation(...))`
+
+---
+
+## FastEndpoints + Result
+
+```csharp
+using GS.Core.Extensions;
+
+public override async Task HandleAsync(Request req, CancellationToken ct)
+{
+    var result = await _mediator.Send(new MyCommand(...), ct);
+    await this.SendResultAsync(result, ct);
+}
+```
+
+---
+
+## LayeredCache (`ILayeredCache`)
+
+Cache hai tầng với **hai chiến lược lookup** rõ ràng:
+
+| `CacheLookupStrategy` | Thứ tự đọc |
+|-----------------------|------------|
+| `MemoryThenRedis` | Memory → Redis → null/fallback |
+| `RedisOnly` | Redis → null/fallback |
+
+| `CacheStorageTarget` | Ghi/xóa |
+|----------------------|---------|
+| `Memory` | In-Memory only |
+| `Redis` | Redis only (bỏ qua nếu chưa cấu hình) |
+| `MemoryAndRedis` | Cả hai |
+
+```csharp
+services.AddGsLayeredCache(configuration);
+
+// Đọc
+var value = await cache.GetAsync<T>(key, CacheLookupStrategy.MemoryThenRedis);
+
+// Đọc + fallback (tự cache kết quả fallback)
+var value = await cache.GetAsync(
+    key,
+    CacheLookupStrategy.MemoryThenRedis,
+    async ct => await FetchAsync(ct),
+    CacheStorageTarget.MemoryAndRedis);
+
+// Ghi / xóa
+await cache.SetAsync(key, value, CacheStorageTarget.MemoryAndRedis);
+await cache.ClearAsync(key);
+```
+
+Config (tùy chọn):
+
+```json
+{
+  "LayeredCache": {
+    "DefaultExpiration": "00:30:00"
+  }
+}
+```
+
+Redis: đăng ký `IDistributedCache` trước (vd. `AddStackExchangeRedisCache` trong `GS.MultiTenant`).
+
+---
+
+## StaleWhileRevalidateCache\<T\>
+
+Cache SWR cho use case cần **refresh nền** khi entry stale (khác `ILayeredCache` dùng get/set/clear tường minh):
+
+1. Trả cache ngay
+2. Entry stale → refresh background
+3. Refresh fail → giữ cache cũ
+
+| Option | Mặc định |
+|--------|----------|
+| `AbsoluteExpiration` | 30 phút |
+| `StaleThreshold` | 5 phút |
+
+---
+
+## Result Pattern
+
+Dùng `Result` / `Result<T>` cho **lỗi nghiệp vụ** thay vì throw exception.
+
+| Loại lỗi | Cách xử lý |
+|----------|------------|
+| Nghiệp vụ | `Result.Fail(...)` |
+| Kỹ thuật | Throw exception |
+| API (MVC) | `.ToActionResult()` |
+| API (FastEndpoints) | `.SendResultAsync()` |
 
 ### Error helpers
 
@@ -170,129 +231,36 @@ Response lỗi (HTTP 402):
 | `Error.Validation(message)` | 400 |
 | `Error.NotFound(message)` | 404 |
 | `Error.Conflict(message)` | 409 |
-| `Error.Forbidden(message)` | 403 |
 | `Error.Unauthorized(message)` | 401 |
-| `Error.Create(code, message, statusCode?)` | Tùy chỉnh |
-
-### Combinators
-
-| Method | Mô tả |
-|--------|-------|
-| `Map` | Biến đổi giá trị success |
-| `Bind` | Nối chuỗi operation trả `Result` |
-| `Tap` | Side-effect trên success, giữ nguyên result |
-| `Ensure` | Thêm điều kiện, fail nếu không thỏa |
-| `Match` | Pattern match success / failure |
-| `Combine` | Gộp nhiều `Result`, trả tất cả lỗi |
 
 ---
 
 ## HttpStatusException
 
-Exception map trực tiếp sang HTTP status code. Middleware `HttpStatusExceptionMiddleware` bắt và trả JSON chuẩn.
-
 ```csharp
-using GS.Core.Exceptions;
-
 throw new HttpStatusException("Tenant code already exists.", 409);
 ```
 
-Response:
-
-```json
-{
-  "error": "HttpStatusException",
-  "message": "Tenant code already exists."
-}
-```
-
-Dùng cho **infrastructure / tenant resolution** hoặc khi cần throw tại biên API. Business logic ưu tiên `Result`.
-
-`Result.ToHttpStatusException()` chuyển `Error` đầu tiên sang `HttpStatusException` khi cần.
+Middleware `UseHttpStatusExceptionHandling()` bắt và trả JSON chuẩn. Dùng ở infrastructure/edge; business logic ưu tiên `Result`.
 
 ---
 
 ## Observability (Serilog + OpenTelemetry)
 
-### Serilog
-
-- Đọc cấu hình từ section `Serilog` trong `appsettings.json`
-- Enrich mặc định: `Application`, `MachineName`, `EnvironmentName`, `ThreadId`, `FromLogContext`
-- Fallback Console sink nếu chưa khai báo `WriteTo`
-
-### OpenTelemetry
-
-- Resource: `service.name`, `service.version`, `deployment.environment`
-- **Traces:** ASP.NET Core, HttpClient, EF Core (tùy chọn) → OTLP
-- **Metrics:** ASP.NET Core, HttpClient, Runtime → OTLP
-
-Thêm instrumentation riêng cho service (ví dụ Npgsql):
-
 ```csharp
-builder.AddGsObservability(configureTracing: static tracing =>
-    Npgsql.TracerProviderBuilderExtensions.AddNpgsql(tracing));
+builder.AddGsObservability(configureTracing: static t =>
+    Npgsql.TracerProviderBuilderExtensions.AddNpgsql(t));
+
+app.UseGsObservability();
+app.RunWithObservability();
 ```
 
-Cấu hình qua section `Observability`:
-
-| Thuộc tính | Mô tả |
-|------------|-------|
-| `ServiceName` | Tên service (mặc định: `ApplicationName`) |
-| `ServiceVersion` | Version (mặc định: entry assembly) |
-| `OpenTelemetry.Enabled` | Bật/tắt OTel |
-| `OpenTelemetry.OtlpEndpoint` | Collector endpoint, ví dụ `http://localhost:4317` |
-| `OpenTelemetry.ExportTraces` | Export traces |
-| `OpenTelemetry.ExportMetrics` | Export metrics |
-| `OpenTelemetry.InstrumentEntityFrameworkCore` | Bật EF Core tracing |
-
----
-
-## StaleWhileRevalidateCache\<T\>
-
-Cache hai tầng (Memory + Redis tùy chọn) với chiến lược **stale-while-revalidate**:
-
-1. Trả cache ngay lập tức (latency thấp)
-2. Nếu entry đã stale → refresh nền
-3. Refresh thất bại → giữ cache cũ, log warning
-
-Được `GS.MultiTenant` dùng cho `CachedTenantStore`.
-
-```csharp
-services.AddMemoryCache();
-services.AddSingleton<StaleWhileRevalidateCache<TenantModel>>();
-
-// Trong store:
-var tenant = await _cache.GetOrCreateAsync(
-    cacheKey,
-    ct => _client.FetchAsync(tenantCode, ct),
-    cancellationToken: cancellationToken);
-```
-
-| Option | Mặc định | Mô tả |
-|--------|----------|-------|
-| `AbsoluteExpiration` | 30 phút | TTL tối đa của entry |
-| `StaleThreshold` | 5 phút | Sau thời gian này, trigger refresh nền |
-
----
-
-## AmbientContext\<T\>
-
-Giá trị ambient theo `AsyncLocal`, restore-on-dispose — phù hợp truyền ngữ cảnh qua async call stack (message handler, middleware scope).
-
-```csharp
-using GS.Core.Ambient;
-
-private static readonly AmbientContext<string?> TenantId = new();
-
-// Set trong filter / middleware:
-using (TenantId.Set("3fa85f64-..."))
-{
-    await ProcessMessageAsync();
-}
-
-// Đọc ở bất kỳ đâu trong cùng async flow:
-var id = TenantId.Value;
-```
+| Thuộc tính `Observability` | Mô tả |
+|----------------------------|-------|
+| `ServiceName` | Tên service trong trace/log |
+| `OpenTelemetry.OtlpEndpoint` | Collector, vd. `http://localhost:4317` |
+| `OpenTelemetry.ExportTraces` | Bật export traces |
+| `OpenTelemetry.InstrumentEntityFrameworkCore` | Trace EF queries |
 
 ---
 
@@ -301,14 +269,14 @@ var id = TenantId.Value;
 | Method / Type | Mô tả |
 |---------------|-------|
 | `AddGsObservability()` | Serilog + OpenTelemetry |
-| `UseGsObservability()` | Serilog request logging |
-| `RunWithObservability()` | `app.Run()` + flush log |
-| `UseHttpStatusExceptionHandling()` | Middleware bắt `HttpStatusException` |
+| `AddGsJwtAuthentication()` | JWT Bearer validation |
+| `AddGsMediatR(assembly)` | MediatR + FluentValidation pipeline |
+| `AddGsLayeredCache()` | `ILayeredCache` |
+| `SendResultAsync()` | FastEndpoints → JSON response |
+| `ToActionResult()` | MVC → JSON response |
 | `Result` / `Result<T>` | Functional error handling |
-| `Error` | Mô tả lỗi có cấu trúc |
-| `ToActionResult()` | Map `Result` → MVC response |
-| `StaleWhileRevalidateCache<T>` | Cache SWR |
-| `AmbientContext<T>` | Async-local ambient value |
+| `ILayeredCache` | Memory/Redis layered cache |
+| `IPasswordHasherService` | Hash/verify password |
 
 ---
 
@@ -316,22 +284,6 @@ var id = TenantId.Value;
 
 | Project | Dùng gì từ Core |
 |---------|-----------------|
-| **[GS.MultiTenant](../GS.MultiTenant/readme.md)** | `StaleWhileRevalidateCache`, `HttpStatusException`, `AmbientContext` |
-| **[GS.TenantService](../GS.TenantService/readme.md)** | `AddGsObservability`, `UseHttpStatusExceptionHandling` |
-
----
-
-## Quy ước đề xuất
-
-```
-Controller  →  Service (Result<T>)  →  Repository
-     ↑                ↓
- ToActionResult    Bind / Map
-     ↑
-HttpStatusException (chỉ ở edge hoặc infra)
-```
-
-- Service layer **luôn** trả `Result<T>` cho logic nghiệp vụ.
-- Controller **không** chứa if/else nghiệp vụ — chỉ gọi service và map result.
-- Exception dành cho lỗi không lường trước được (infrastructure, bug).
-- Mọi microservice gọi `AddGsObservability()` để log và trace thống nhất.
+| **GS.MultiTenant** | `ILayeredCache`, `HttpStatusException`, `AmbientContext` |
+| **GS.TenantService** | `AddGsObservability`, `HttpStatusException` |
+| **HMS.Identity** | JWT, MediatR, FastEndpoints, Result, PasswordHasher |

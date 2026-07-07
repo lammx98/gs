@@ -12,7 +12,13 @@ public class TenantEntity
 
     public TenantTier Tier { get; set; } = TenantTier.Basic;
 
-    public string? ConnectionString { get; set; }
+    public bool UsesDedicatedDatabase { get; set; }
+
+    public string? DatabaseHost { get; set; }
+
+    public int? DatabasePort { get; set; }
+
+    public string? CredentialsRef { get; set; }
 
     public bool IsActive { get; set; } = true;
 

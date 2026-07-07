@@ -14,15 +14,15 @@ namespace GS.MultiTenant.Data;
 /// </summary>
 public abstract class TenantBaseDbContext : MultiTenantDbContext
 {
-    private readonly MultiTenantOptions _options;
+    private readonly IConnectionStringResolver _connectionStringResolver;
 
     protected TenantBaseDbContext(
         IMultiTenantContextAccessor multiTenantContextAccessor,
-        IOptions<MultiTenantOptions> options,
+        IConnectionStringResolver connectionStringResolver,
         DbContextOptions optionsBuilder)
         : base(multiTenantContextAccessor, optionsBuilder)
     {
-        _options = options.Value;
+        _connectionStringResolver = connectionStringResolver;
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -33,14 +33,11 @@ public abstract class TenantBaseDbContext : MultiTenantDbContext
         }
 
         var tenant = TenantInfo as TenantModel;
-        var connectionString = tenant?.UsesDedicatedDatabase == true
-            ? tenant.ConnectionString
-            : _options.SharedDatabaseConnectionString;
+        var connectionString = tenant is not null && _connectionStringResolver.UsesDedicatedDatabase(tenant)
+            ? _connectionStringResolver.ResolveDedicated(tenant)
+            : _connectionStringResolver.ResolveShared();
 
-        if (!string.IsNullOrWhiteSpace(connectionString))
-        {
-            ConfigureProvider(optionsBuilder, connectionString);
-        }
+        ConfigureProvider(optionsBuilder, connectionString);
     }
 
     protected abstract void ConfigureProvider(DbContextOptionsBuilder optionsBuilder, string connectionString);

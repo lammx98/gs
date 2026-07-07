@@ -7,5 +7,5 @@ public enum TenantTier
 {
     Basic = 0,
     Standard = 1,
-    Vip = 2
+    Premium = 2
 }

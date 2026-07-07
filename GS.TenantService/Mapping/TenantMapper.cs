@@ -11,6 +11,9 @@ internal static class TenantMapper
         Identifier = entity.TenantCode,
         TenantName = entity.TenantName,
         Tier = entity.Tier,
-        ConnectionString = entity.ConnectionString
+        UsesDedicatedDatabase = entity.UsesDedicatedDatabase,
+        DatabaseHost = entity.DatabaseHost,
+        DatabasePort = entity.DatabasePort,
+        CredentialsRef = entity.CredentialsRef
     };
 }

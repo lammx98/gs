@@ -1,17 +1,63 @@
-# GS local infrastructure (PostgreSQL is external — configure in appsettings).
+# GS local infrastructure
 #
 # Usage:
-#   docker compose up -d
+#   docker compose up -d --build
 #   docker compose down
 #
+# Prerequisites:
+#   External network `local-shared-network` must exist.
+#   PostgreSQL container `postgres` must be attached to that network.
+#
 # Services:
-#   OTLP (4317)  -> Grafana LGTM (traces, metrics, Grafana UI :3000)
-#   Redis        -> GS.MultiTenant distributed cache (:6379)
-#   RabbitMQ     -> MassTransit / event bus (:5672, management UI :15672)
+#   tenant-service (:5100 REST, :5101 gRPC) -> GS.TenantService
+#   OTLP (4317)            -> Grafana LGTM (traces, metrics, Grafana UI :3000)
+#   Redis (:6379)          -> GS.MultiTenant distributed cache
+#   RabbitMQ (:5672)       -> MassTransit / event bus (management UI :15672)
+#
+# Apply EF migrations (first run or after schema change):
+#   docker compose --profile migrate run --rm tenant-service-migrate
 
 name: gs
 
 services:
+  tenant-service:
+    build:
+      context: .
+      dockerfile: GS.TenantService/Dockerfile
+    image: lammx98/gs-tenant-service:latest
+    container_name: gs-tenant-service
+    ports:
+      - "5100:5000"
+      - "5101:5001"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__TenantDb: Host=postgres;Port=5432;Database=gs.tenant;Username=postgres;Password=123456a@
+      Observability__OpenTelemetry__OtlpEndpoint: http://otel-lgtm:4317
+    networks:
+      - gs-internal
+      - local-shared-network
+    restart: unless-stopped
+
+  tenant-service-migrate:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    container_name: gs-tenant-service-migrate
+    working_dir: /src
+    volumes:
+      - .:/src
+    environment:
+      ConnectionStrings__TenantDb: Host=postgres;Port=5432;Database=gs.tenant;Username=postgres;Password=123456a@
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        dotnet tool install --global dotnet-ef --version 10.0.9
+        export PATH="$$PATH:/root/.dotnet/tools"
+        dotnet ef database update --project GS.TenantService/GS.TenantService.csproj
+    networks:
+      - local-shared-network
+    profiles:
+      - migrate
+
   otel-lgtm:
     image: grafana/otel-lgtm:0.11.6
     container_name: gs-otel-lgtm
@@ -19,6 +65,8 @@ services:
       - "4317:4317"   # OTLP gRPC — matches Observability:OpenTelemetry:OtlpEndpoint
       - "4318:4318"   # OTLP HTTP
       - "3000:3000"   # Grafana UI (admin / admin on first login)
+    networks:
+      - gs-internal
     restart: unless-stopped
 
   redis:
@@ -31,6 +79,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - gs-internal
     restart: unless-stopped
 
   rabbitmq:
@@ -47,4 +97,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - gs-internal
     restart: unless-stopped
+
+networks:
+  gs-internal:
+    name: gs-internal
+  local-shared-network:
+    external: true

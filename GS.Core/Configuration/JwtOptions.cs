@@ -12,7 +12,12 @@ public sealed class JwtOptions
 
     public string SigningKey { get; set; } = string.Empty;
 
-    public int ExpiresMinutes { get; set; } = 60;
+    public int ExpiresMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Lifetime of opaque refresh tokens issued alongside access tokens.
+    /// </summary>
+    public int RefreshTokenExpiresDays { get; set; } = 14;
 
     /// <summary>
     /// JWT claim used for tenant resolution. Must match <c>MultiTenant:JwtTenantClaimType</c>.

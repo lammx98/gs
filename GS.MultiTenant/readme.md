@@ -86,7 +86,7 @@ Entity implement `ITenantEntity` để tự động áp global query filter trê
     "ServiceDatabaseName": "identity",
     "DatabaseNamingTemplate": "{tenantCode}_{serviceName}",
     "SharedDatabaseConnectionString": "Host=localhost;Port=5432;Database=hms_identity_shared;Username=postgres;Password=...",
-    "TenantServiceBaseUrl": "http://localhost:5100",
+    "TenantServiceGrpcAddress": "http://localhost:5001",
     "UseRedisCache": true,
     "RedisConnectionString": "localhost:6379",
     "CacheAbsoluteExpiration": "00:30:00",
@@ -102,8 +102,7 @@ Entity implement `ITenantEntity` để tự động áp global query filter trê
 |--------|----------|---------|
 | `ServiceDatabaseName` | Có (nếu có dedicated tenant) | Tên DB: `acme_identity` |
 | `SharedDatabaseConnectionString` | Có | CS shared DB |
-| `TenantServiceBaseUrl` | Khuyến nghị | Để trống = tenant giả (dev only) |
-| `TenantServiceEndpointTemplate` | Không | Default `/api/tenants/{tenantCode}` |
+| `TenantServiceGrpcAddress` | Khuyến nghị | Để trống = tenant giả (dev only). gRPC port mặc định `5001` |
 | `TenantHeaderName` | Không | Default `X-Tenant-Id` |
 | `JwtTenantClaimType` | Không | Default `tenant_id` |
 | `HostTemplate` | Không | Default `__tenant__.*` (subdomain) |
@@ -125,8 +124,8 @@ Service trung tâm lấy cấu hình tenant, dùng `ILayeredCache` strategy **Me
 
 | Method | Mô tả |
 |--------|-------|
-| `GetByTenantCodeAsync(code)` | Cache → TenantService API → cache cả code + id key |
-| `GetByTenantIdAsync(id)` | Chỉ đọc cache (key `tenant:id:{id}`) |
+| `GetByTenantCodeAsync(code)` | Cache → TenantService gRPC → cache cả code + id key |
+| `GetByTenantIdAsync(id)` | Cache → TenantService gRPC → cache |
 | `SetAsync(tenant)` | Ghi cache thủ công |
 | `ClearAsync(code, id?)` | Xóa cache |
 
@@ -144,7 +143,7 @@ Cache keys:
 | Cache miss | Gọi TenantService 1 lần, cache lại |
 | TenantService down + đã cache | Vẫn chạy |
 | TenantService down + chưa cache | Tenant not found |
-| `TenantServiceBaseUrl` trống | Tenant giả (dev), không gọi API |
+| `TenantServiceGrpcAddress` trống | Tenant giả (dev), không gọi gRPC |
 
 Khuyến nghị production: bật `UseRedisCache` để cache sống qua pod restart.
 
@@ -232,7 +231,8 @@ GS.MultiTenant/
 ├── Configuration/      MultiTenantOptions
 ├── Data/               TenantBaseDbContext
 ├── Services/           TenantResolutionService, PostgreSqlConnectionStringResolver
-├── Stores/             CachedTenantStore, HttpTenantConfigurationClient
+├── Stores/             CachedTenantStore, GrpcTenantConfigurationClient
+├── Protos/             gs/tenant/v1/tenant.proto (gRPC contract)
 ├── Middleware/         TenantConsistencyMiddleware
 ├── Models/             TenantModel, TenantTier
 └── Extensions/         DI, middleware, DbContext, MassTransit

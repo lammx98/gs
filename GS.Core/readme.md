@@ -21,6 +21,7 @@ Thư viện **primitives dùng chung** cho toàn bộ hệ sinh thái GS microse
 | `MediatR` + `FluentValidation` | VSA pipeline |
 | `FastEndpoints` | `SendResultAsync` mapping |
 | `Microsoft.AspNetCore.Authentication.JwtBearer` | JWT validation |
+| `Grpc.AspNetCore` + `Grpc.Net.ClientFactory` | gRPC server/client infrastructure |
 
 ---
 
@@ -31,7 +32,7 @@ GS.Core/
 ├── Auth/               JwtOptions, IJwtTokenService, GsJwtClaimTypes
 ├── Ambient/            AmbientContext<T>
 ├── Caching/            ILayeredCache, LayeredCache, StaleWhileRevalidateCache<T>
-├── Configuration/      ObservabilityOptions, JwtOptions, LayeredCacheOptions
+├── Configuration/      ObservabilityOptions, JwtOptions, GrpcOptions, LayeredCacheOptions
 ├── Exceptions/         HttpStatusException
 ├── Extensions/         DI & pipeline extensions
 ├── Mediation/          ValidationBehavior (MediatR + FluentValidation)
@@ -98,6 +99,7 @@ Tất cả service dùng **cùng** `Jwt` config để validate token. Chỉ serv
     "Audience": "HMS",
     "SigningKey": "SAME_KEY_ACROSS_ALL_SERVICES",
     "ExpiresMinutes": 60,
+    "RefreshTokenExpiresDays": 14,
     "TenantClaimType": "tenant_id"
   }
 }
@@ -119,8 +121,44 @@ Client → HMS.Clinical:  Authorization: Bearer {token}
 | Method | Mô tả |
 |--------|-------|
 | `AddGsJwtAuthentication(config)` | Đăng ký JWT Bearer validation |
-| `AddGsJwtAuthentication(config, issueTokens: true)` | Thêm `IJwtTokenService` để phát token |
-| `IJwtTokenService.CreateToken(JwtTokenRequest)` | Tạo access token |
+| `AddGsJwtAuthentication(config, issueTokens: true)` | Thêm `IJwtTokenService` và `IRefreshTokenGenerator` để phát token |
+| `IJwtTokenService.CreateToken(JwtTokenRequest)` | Tạo access token (JWT) |
+| `IRefreshTokenGenerator.Generate()` | Tạo opaque refresh token + hash để lưu DB |
+| `IRefreshTokenGenerator.Hash(token)` | Hash refresh token khi tra cứu/revoke |
+
+### Refresh token (production)
+
+- **Access token**: JWT ngắn hạn (`ExpiresMinutes`, mặc định 15 phút).
+- **Refresh token**: opaque token (32 bytes, Base64Url), lưu **hash SHA-256** trong DB — không lưu plain text.
+- **Rotation**: mỗi lần refresh phát cặp token mới và revoke token cũ.
+- **Reuse detection**: dùng lại refresh token đã revoke → revoke toàn bộ token family.
+- Persistence và endpoints refresh/logout nằm ở service phát hành token (ví dụ `HMS.Identity`).
+
+---
+
+## gRPC (internal service-to-service)
+
+Proto contracts nằm trong từng domain library (ví dụ `GS.MultiTenant/Protos/`). Service host và consumer dùng extension chung từ GS.Core:
+
+### Host gRPC (ví dụ GS.TenantService)
+
+```csharp
+builder.ConfigureGsKestrelForGrpc(httpPort: 5000); // REST :5000, gRPC :5001
+builder.Services.AddGsGrpcServer(builder.Configuration);
+app.MapGrpcService<TenantResolverGrpcService>();
+```
+
+```json
+"Grpc": { "ServerPort": 5001, "EnableDetailedErrors": true }
+```
+
+### gRPC client (consumer microservice)
+
+```csharp
+services.AddGsGrpcClient<TenantResolver.TenantResolverClient>("http://gs-tenant-service:5001");
+```
+
+Contract tenant lookup: `GS.MultiTenant/Protos/gs/tenant/v1/tenant.proto` → `TenantResolver.GetByTenantCode`, `GetByTenantId`.
 
 ---
 

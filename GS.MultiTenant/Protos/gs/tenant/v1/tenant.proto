@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package gs.tenant.v1;
+
+option csharp_namespace = "GS.MultiTenant.Grpc.Tenant";
+
+// Internal tenant lookup contract — server implemented by GS.TenantService, client by consumers.
+service TenantResolver {
+  rpc GetByTenantCode (GetByTenantCodeRequest) returns (GetTenantResponse);
+  rpc GetByTenantId (GetByTenantIdRequest) returns (GetTenantResponse);
+}
+
+message GetByTenantCodeRequest {
+  string tenant_code = 1;
+}
+
+message GetByTenantIdRequest {
+  string tenant_id = 1;
+}
+
+message GetTenantResponse {
+  bool found = 1;
+  TenantInfo tenant = 2;
+}
+
+message TenantInfo {
+  string tenant_id = 1;
+  string tenant_code = 2;
+  string tenant_name = 3;
+  TenantTier tier = 4;
+  bool uses_dedicated_database = 5;
+  optional string database_host = 6;
+  optional int32 database_port = 7;
+  optional string credentials_ref = 8;
+}
+
+enum TenantTier {
+  TENANT_TIER_UNSPECIFIED = 0;
+  TENANT_TIER_BASIC = 1;
+  TENANT_TIER_STANDARD = 2;
+  TENANT_TIER_PREMIUM = 3;
+}

@@ -10,9 +10,7 @@ public sealed class MultiTenantOptions
 
     public string HostTemplate { get; set; } = "__tenant__.*";
 
-    public string TenantServiceBaseUrl { get; set; } = string.Empty;
-
-    public string TenantServiceEndpointTemplate { get; set; } = "/api/tenants/{tenantCode}";
+    public string TenantServiceGrpcAddress { get; set; } = string.Empty;
 
     public bool RequireTenant { get; set; } = true;
 

@@ -3,6 +3,7 @@ using Finbuckle.MultiTenant.Extensions;
 using Finbuckle.MultiTenant.AspNetCore.Extensions;
 using GS.Core.Caching;
 using GS.Core.Extensions;
+using GS.MultiTenant.Grpc.Tenant;
 using GS.MultiTenant.Abstractions;
 using GS.MultiTenant.Configuration;
 using GS.MultiTenant.Exceptions;
@@ -50,13 +51,12 @@ public static class MultiTenantServiceCollectionExtensions
         services.TryAddSingleton<IConnectionStringResolver, PostgreSqlConnectionStringResolver>();
         services.TryAddSingleton<ITenantResolutionService, TenantResolutionService>();
 
-        services.AddHttpClient<ITenantConfigurationClient, HttpTenantConfigurationClient>(client =>
+        if (!string.IsNullOrWhiteSpace(options.TenantServiceGrpcAddress))
         {
-            if (!string.IsNullOrWhiteSpace(options.TenantServiceBaseUrl))
-            {
-                client.BaseAddress = new Uri(options.TenantServiceBaseUrl);
-            }
-        });
+            services.AddGsGrpcClient<TenantResolver.TenantResolverClient>(options.TenantServiceGrpcAddress);
+        }
+
+        services.TryAddSingleton<ITenantConfigurationClient, GrpcTenantConfigurationClient>();
 
         var requireTenant = options.RequireTenant;
 

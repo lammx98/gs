@@ -50,6 +50,7 @@ public static class JwtAuthenticationServiceCollectionExtensions
         if (issueTokens)
         {
             services.AddSingleton<IJwtTokenService, JwtTokenService>();
+            services.AddSingleton<IRefreshTokenGenerator, RefreshTokenGenerator>();
         }
 
         return services;

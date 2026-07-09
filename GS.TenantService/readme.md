@@ -1,6 +1,6 @@
 # GS.TenantService
 
-Master data service quản lý cấu hình tenant. Các microservice khác lấy thông tin tenant qua `TenantServiceBaseUrl` trong GS.MultiTenant (`ITenantResolutionService`).
+Master data service quản lý cấu hình tenant. Các microservice khác lấy thông tin tenant qua **gRPC** (`TenantServiceGrpcAddress` trong GS.MultiTenant).
 
 ## Database — PostgreSQL
 
@@ -34,7 +34,45 @@ dotnet ef migrations add <MigrationName> --project GS.TenantService
 dotnet run --project GS.TenantService
 ```
 
-Service lắng nghe tại `http://localhost:5100`.
+Service lắng nghe tại:
+- REST: `http://localhost:5000`
+- gRPC (internal): `http://localhost:5001`
+
+## Docker
+
+Build image (từ thư mục gốc repo `GS`):
+
+```bash
+docker build -f GS.TenantService/Dockerfile -t gs-tenant-service .
+```
+
+Chạy cùng stack local (dùng PostgreSQL container `postgres` trên network `local-shared-network`):
+
+```bash
+# Đảm bảo network external đã tồn tại
+docker network create local-shared-network   # bỏ qua nếu đã có
+
+# Từ thư mục GS
+docker compose up -d --build
+
+# Migration lần đầu
+docker compose --profile migrate run --rm tenant-service-migrate
+```
+
+| Service | URL |
+|---------|-----|
+| TenantService REST | `http://localhost:5100` |
+| TenantService gRPC | `http://localhost:5101` (microservices dùng address này) |
+| PostgreSQL | Container `postgres` trên `local-shared-network` |
+
+Chạy container đơn lẻ (join shared network):
+
+```bash
+docker run --rm -p 5100:5000 -p 5101:5001 \
+  --network local-shared-network \
+  -e ConnectionStrings__TenantDb="Host=postgres;Port=5432;Database=gs-tenant;Username=postgres;Password=123456a@" \
+  gs-tenant-service
+```
 
 ## Observability
 
@@ -50,9 +88,20 @@ Chi tiết: [GS.Core/readme.md](../GS.Core/readme.md#observability-serilog--open
 
 ## API
 
+### gRPC (internal — GS.MultiTenant)
+
+Contract: `GS.MultiTenant/Protos/gs/tenant/v1/tenant.proto`
+
+| RPC | Mô tả |
+|-----|-------|
+| `GetByTenantCode` | Resolve tenant theo code |
+| `GetByTenantId` | Resolve tenant theo GUID |
+
+### REST (management / external)
+
 | Method | Route | Mô tả |
 |--------|-------|-------|
-| `GET` | `/api/tenants/{tenantCode}` | **Endpoint chính** — GS.MultiTenant gọi khi resolve tenant |
+| `GET` | `/api/tenants/{tenantCode}` | Tra cứu theo code |
 | `GET` | `/api/tenants` | Danh sách tất cả tenant |
 | `GET` | `/api/tenants/id/{tenantId}` | Tra cứu theo GUID |
 | `POST` | `/api/tenants` | Tạo tenant mới |
@@ -94,12 +143,13 @@ POST /api/tenants
 ```json
 {
   "MultiTenant": {
-    "TenantServiceBaseUrl": "http://localhost:5100"
+    "TenantServiceGrpcAddress": "http://localhost:5001"
   }
 }
 ```
 
-`TenantServiceEndpointTemplate` có default `/api/tenants/{tenantCode}` — không cần khai báo nếu dùng mặc định.
+Docker (service trong cùng `gs-internal` network): `http://gs-tenant-service:5001`  
+Docker (consumer chạy host): `http://localhost:5101`
 
 ## Quy tắc nghiệp vụ
 

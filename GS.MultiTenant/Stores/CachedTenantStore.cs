@@ -36,7 +36,9 @@ public sealed class CachedTenantStore : Finbuckle.MultiTenant.Abstractions.IMult
         GetAsync(identifier);
 
     public Task<TenantModel?> GetAsync(string identifier) =>
-        _tenantResolution.GetByTenantCodeAsync(identifier);
+        Guid.TryParse(identifier, out _)
+            ? _tenantResolution.GetByTenantIdAsync(identifier)
+            : _tenantResolution.GetByTenantCodeAsync(identifier);
 
     public Task<IEnumerable<TenantModel>> GetAllAsync() =>
         Task.FromResult(Enumerable.Empty<TenantModel>());

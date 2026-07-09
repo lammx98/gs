@@ -4,5 +4,7 @@ namespace GS.MultiTenant.Abstractions;
 
 public interface ITenantConfigurationClient
 {
-    Task<TenantModel?> GetTenantAsync(string tenantId, CancellationToken cancellationToken = default);
+    Task<TenantModel?> GetByTenantCodeAsync(string tenantCode, CancellationToken cancellationToken = default);
+
+    Task<TenantModel?> GetByTenantIdAsync(string tenantId, CancellationToken cancellationToken = default);
 }

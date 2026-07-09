@@ -37,32 +37,47 @@ public sealed class TenantResolutionService : ITenantResolutionService
             return cached;
         }
 
-        var tenant = await _client.GetTenantAsync(normalizedCode, cancellationToken);
+        var tenant = await _client.GetByTenantCodeAsync(normalizedCode, cancellationToken);
         if (tenant is null)
         {
             return null;
         }
 
         tenant.Identifier = string.IsNullOrWhiteSpace(tenant.Identifier) ? normalizedCode : tenant.Identifier;
-        tenant.Id = string.IsNullOrWhiteSpace(tenant.Id) ? normalizedCode : tenant.Id;
 
         await CacheTenantAsync(tenant, cancellationToken);
         return tenant;
     }
 
-    public Task<TenantModel?> GetByTenantIdAsync(
+    public async Task<TenantModel?> GetByTenantIdAsync(
         string tenantId,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {
-            return Task.FromResult<TenantModel?>(null);
+            return null;
         }
 
-        return _cache.GetAsync<TenantModel>(
-            BuildIdKey(tenantId.Trim()),
+        var normalizedId = tenantId.Trim();
+        var cached = await _cache.GetAsync<TenantModel>(
+            BuildIdKey(normalizedId),
             CacheLookupStrategy.MemoryThenRedis,
-            cancellationToken: cancellationToken);
+            cancellationToken);
+
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var tenant = await _client.GetByTenantIdAsync(normalizedId, cancellationToken);
+        if (tenant is null)
+        {
+            return null;
+        }
+
+        tenant.Id = string.IsNullOrWhiteSpace(tenant.Id) ? normalizedId : tenant.Id;
+        await CacheTenantAsync(tenant, cancellationToken);
+        return tenant;
     }
 
     public Task SetAsync(TenantModel tenant, CancellationToken cancellationToken = default) =>

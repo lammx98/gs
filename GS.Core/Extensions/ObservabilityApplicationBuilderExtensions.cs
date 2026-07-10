@@ -5,7 +5,7 @@ namespace GS.Core.Extensions;
 
 public static class ObservabilityApplicationBuilderExtensions
 {
-    public static WebApplication UseGsObservability(this WebApplication app)
+    public static WebApplication UseObservability(this WebApplication app)
     {
         app.UseSerilogRequestLogging(options =>
         {

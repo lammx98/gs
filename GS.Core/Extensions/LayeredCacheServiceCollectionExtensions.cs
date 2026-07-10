@@ -5,7 +5,7 @@ namespace GS.Core.Extensions;
 
 public static class LayeredCacheServiceCollectionExtensions
 {
-    public static IServiceCollection AddGsLayeredCache(
+    public static IServiceCollection AddLayeredCache(
         this IServiceCollection services,
         IConfiguration? configuration = null)
     {

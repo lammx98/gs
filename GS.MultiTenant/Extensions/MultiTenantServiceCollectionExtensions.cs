@@ -45,7 +45,8 @@ public static class MultiTenantServiceCollectionExtensions
             cache.DefaultExpiration = options.CacheAbsoluteExpiration;
         });
 
-        services.AddGsLayeredCache();
+        services.AddLayeredCache();
+        services.AddSnowflakeIdGenerator(configuration);
         services.TryAddSingleton<ITenantBypassService, TenantBypassService>();
         services.TryAddScoped<ICurrentTenantAccessor, CurrentTenantAccessor>();
         services.TryAddSingleton<IConnectionStringResolver, PostgreSqlConnectionStringResolver>();
@@ -53,7 +54,9 @@ public static class MultiTenantServiceCollectionExtensions
 
         if (!string.IsNullOrWhiteSpace(options.TenantServiceGrpcAddress))
         {
-            services.AddGsGrpcClient<TenantResolver.TenantResolverClient>(options.TenantServiceGrpcAddress);
+            GrpcServiceCollectionExtensions.AddGrpcClient<TenantResolver.TenantResolverClient>(
+                services,
+                options.TenantServiceGrpcAddress);
         }
 
         services.TryAddSingleton<ITenantConfigurationClient, GrpcTenantConfigurationClient>();

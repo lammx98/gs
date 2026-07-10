@@ -11,7 +11,7 @@ public static class MediatRServiceCollectionExtensions
     /// <summary>
     /// Registers MediatR, FluentValidation validators, and the Result-aware validation pipeline behavior.
     /// </summary>
-    public static IServiceCollection AddGsMediatR(
+    public static IServiceCollection AddMediatR(
         this IServiceCollection services,
         Assembly assembly)
     {

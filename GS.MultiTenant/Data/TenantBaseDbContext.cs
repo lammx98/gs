@@ -1,5 +1,7 @@
 using Finbuckle.MultiTenant.Abstractions;
 using Finbuckle.MultiTenant.EntityFrameworkCore;
+using GS.Core.Data;
+using GS.Core.Ids;
 using GS.MultiTenant.Abstractions;
 using GS.MultiTenant.Configuration;
 using GS.MultiTenant.Models;
@@ -15,14 +17,35 @@ namespace GS.MultiTenant.Data;
 public abstract class TenantBaseDbContext : MultiTenantDbContext
 {
     private readonly IConnectionStringResolver _connectionStringResolver;
+    private readonly ISnowflakeIdGenerator? _snowflakeIdGenerator;
 
     protected TenantBaseDbContext(
         IMultiTenantContextAccessor multiTenantContextAccessor,
         IConnectionStringResolver connectionStringResolver,
-        DbContextOptions optionsBuilder)
+        DbContextOptions optionsBuilder,
+        ISnowflakeIdGenerator? snowflakeIdGenerator = null)
         : base(multiTenantContextAccessor, optionsBuilder)
     {
         _connectionStringResolver = connectionStringResolver;
+        _snowflakeIdGenerator = snowflakeIdGenerator;
+    }
+
+    /// <summary>Runs before Snowflake ids and other save pipeline steps.</summary>
+    protected virtual void ApplyBeforeSaveChanges()
+    {
+        this.ApplySnowflakeIds(_snowflakeIdGenerator);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyBeforeSaveChanges();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ApplyBeforeSaveChanges();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)

@@ -59,17 +59,17 @@ using GS.MultiTenant.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.AddGsObservability();
+builder.AddObservability();
 
-builder.Services.AddGsJwtAuthentication(builder.Configuration);       // validate JWT
-builder.Services.AddGsMediatR(typeof(Program).Assembly);              // VSA pipeline
-builder.Services.AddGsLayeredCache(builder.Configuration);          // optional, MultiTenant tự gọi
+builder.Services.AddJwtAuthentication(builder.Configuration);       // validate JWT
+builder.Services.AddMediatR(typeof(Program).Assembly);              // VSA pipeline
+builder.Services.AddLayeredCache(builder.Configuration);          // optional, MultiTenant tự gọi
 builder.Services.AddMultiTenantServices(builder.Configuration);
 builder.Services.AddFastEndpoints();
 
 var app = builder.Build();
 
-app.UseGsObservability();
+app.UseObservability();
 app.UseAuthentication();        // JWT trước
 app.UseTenantResolution();      // MultiTenant sau khi JWT đã parse
 app.UseAuthorization();
@@ -81,7 +81,7 @@ app.RunWithObservability();
 ### 3. `Program.cs` (service phát hành token — HMS.Identity)
 
 ```csharp
-builder.Services.AddGsJwtAuthentication(builder.Configuration, issueTokens: true);
+builder.Services.AddJwtAuthentication(builder.Configuration, issueTokens: true);
 ```
 
 ---
@@ -112,7 +112,7 @@ Tất cả service dùng **cùng** `Jwt` config để validate token. Chỉ serv
 ```
 Client → HMS.Identity: login → nhận JWT (sub, email, tenant_id)
 Client → HMS.Clinical:  Authorization: Bearer {token}
-       → AddGsJwtAuthentication validate signature/issuer/audience
+       → AddJwtAuthentication validate signature/issuer/audience
        → GS.MultiTenant đọc claim tenant_id, so khớp header/subdomain
 ```
 
@@ -120,8 +120,8 @@ Client → HMS.Clinical:  Authorization: Bearer {token}
 
 | Method | Mô tả |
 |--------|-------|
-| `AddGsJwtAuthentication(config)` | Đăng ký JWT Bearer validation |
-| `AddGsJwtAuthentication(config, issueTokens: true)` | Thêm `IJwtTokenService` và `IRefreshTokenGenerator` để phát token |
+| `AddJwtAuthentication(config)` | Đăng ký JWT Bearer validation |
+| `AddJwtAuthentication(config, issueTokens: true)` | Thêm `IJwtTokenService` và `IRefreshTokenGenerator` để phát token |
 | `IJwtTokenService.CreateToken(JwtTokenRequest)` | Tạo access token (JWT) |
 | `IRefreshTokenGenerator.Generate()` | Tạo opaque refresh token + hash để lưu DB |
 | `IRefreshTokenGenerator.Hash(token)` | Hash refresh token khi tra cứu/revoke |
@@ -143,8 +143,8 @@ Proto contracts nằm trong từng domain library (ví dụ `GS.MultiTenant/Prot
 ### Host gRPC (ví dụ GS.TenantService)
 
 ```csharp
-builder.ConfigureGsKestrelForGrpc(httpPort: 5000); // REST :5000, gRPC :5001
-builder.Services.AddGsGrpcServer(builder.Configuration);
+builder.ConfigureKestrelForGrpc(httpPort: 5000); // REST :5000, gRPC :5001
+builder.Services.AddGrpcServer(builder.Configuration);
 app.MapGrpcService<TenantResolverGrpcService>();
 ```
 
@@ -155,7 +155,7 @@ app.MapGrpcService<TenantResolverGrpcService>();
 ### gRPC client (consumer microservice)
 
 ```csharp
-services.AddGsGrpcClient<TenantResolver.TenantResolverClient>("http://gs-tenant-service:5001");
+services.AddGrpcClient<TenantResolver.TenantResolverClient>("http://gs-tenant-service:5001");
 ```
 
 Contract tenant lookup: `GS.MultiTenant/Protos/gs/tenant/v1/tenant.proto` → `TenantResolver.GetByTenantCode`, `GetByTenantId`.
@@ -165,7 +165,7 @@ Contract tenant lookup: `GS.MultiTenant/Protos/gs/tenant/v1/tenant.proto` → `T
 ## MediatR + FluentValidation (VSA)
 
 ```csharp
-builder.Services.AddGsMediatR(typeof(Program).Assembly);
+builder.Services.AddMediatR(typeof(Program).Assembly);
 ```
 
 Tự động đăng ký:
@@ -205,7 +205,7 @@ Cache hai tầng với **hai chiến lược lookup** rõ ràng:
 | `MemoryAndRedis` | Cả hai |
 
 ```csharp
-services.AddGsLayeredCache(configuration);
+services.AddLayeredCache(configuration);
 
 // Đọc
 var value = await cache.GetAsync<T>(key, CacheLookupStrategy.MemoryThenRedis);
@@ -286,10 +286,10 @@ Middleware `UseHttpStatusExceptionHandling()` bắt và trả JSON chuẩn. Dùn
 ## Observability (Serilog + OpenTelemetry)
 
 ```csharp
-builder.AddGsObservability(configureTracing: static t =>
+builder.AddObservability(configureTracing: static t =>
     Npgsql.TracerProviderBuilderExtensions.AddNpgsql(t));
 
-app.UseGsObservability();
+app.UseObservability();
 app.RunWithObservability();
 ```
 
@@ -306,10 +306,10 @@ app.RunWithObservability();
 
 | Method / Type | Mô tả |
 |---------------|-------|
-| `AddGsObservability()` | Serilog + OpenTelemetry |
-| `AddGsJwtAuthentication()` | JWT Bearer validation |
-| `AddGsMediatR(assembly)` | MediatR + FluentValidation pipeline |
-| `AddGsLayeredCache()` | `ILayeredCache` |
+| `AddObservability()` | Serilog + OpenTelemetry |
+| `AddJwtAuthentication()` | JWT Bearer validation |
+| `AddMediatR(assembly)` | MediatR + FluentValidation pipeline |
+| `AddLayeredCache()` | `ILayeredCache` |
 | `SendResultAsync()` | FastEndpoints → JSON response |
 | `ToActionResult()` | MVC → JSON response |
 | `Result` / `Result<T>` | Functional error handling |
@@ -323,5 +323,5 @@ app.RunWithObservability();
 | Project | Dùng gì từ Core |
 |---------|-----------------|
 | **GS.MultiTenant** | `ILayeredCache`, `HttpStatusException`, `AmbientContext` |
-| **GS.TenantService** | `AddGsObservability`, `HttpStatusException` |
+| **GS.TenantService** | `AddObservability`, `HttpStatusException` |
 | **HMS.Identity** | JWT, MediatR, FastEndpoints, Result, PasswordHasher |

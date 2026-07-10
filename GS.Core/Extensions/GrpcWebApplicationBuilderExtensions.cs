@@ -11,7 +11,7 @@ public static class GrpcWebApplicationBuilderExtensions
     /// <summary>
     /// Listens on the default HTTP port for REST and a dedicated HTTP/2 port for gRPC.
     /// </summary>
-    public static WebApplicationBuilder ConfigureGsKestrelForGrpc(
+    public static WebApplicationBuilder ConfigureKestrelForGrpc(
         this WebApplicationBuilder builder,
         int? httpPort = null)
     {

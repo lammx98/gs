@@ -11,7 +11,7 @@ public static class GrpcServiceCollectionExtensions
     /// <summary>
     /// Registers a typed gRPC client pointing at <paramref name="address"/>.
     /// </summary>
-    public static IServiceCollection AddGsGrpcClient<TClient>(
+    public static IServiceCollection AddGrpcClient<TClient>(
         this IServiceCollection services,
         string address,
         Action<GrpcClientFactoryOptions>? configureClient = null,
@@ -41,7 +41,7 @@ public static class GrpcServiceCollectionExtensions
     /// <summary>
     /// Registers gRPC server primitives and binds <see cref="GrpcOptions"/>.
     /// </summary>
-    public static IServiceCollection AddGsGrpcServer(
+    public static IServiceCollection AddGrpcServer(
         this IServiceCollection services,
         IConfiguration configuration,
         Action<GrpcOptions>? configure = null)

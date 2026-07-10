@@ -172,7 +172,7 @@ Tất cả strategy được đăng ký; chỉ active khi request có dữ liệ
 using GS.Core.Extensions;
 using GS.MultiTenant.Extensions;
 
-builder.Services.AddGsJwtAuthentication(builder.Configuration);
+builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddMultiTenantServices(builder.Configuration);
 
 builder.Services.AddTenantDbContext<AppDbContext>((options, cs) =>

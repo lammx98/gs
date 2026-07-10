@@ -77,10 +77,10 @@ docker run --rm -p 5100:5000 -p 5101:5001 \
 ## Observability
 
 ```csharp
-builder.AddGsObservability(configureTracing: tracing => tracing.AddNpgsql());
+builder.AddObservability(configureTracing: tracing => tracing.AddNpgsql());
 
 app.UseHttpStatusExceptionHandling();
-app.UseGsObservability();
+app.UseObservability();
 app.RunWithObservability();
 ```
 

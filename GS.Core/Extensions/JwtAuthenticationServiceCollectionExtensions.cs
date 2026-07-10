@@ -13,7 +13,7 @@ public static class JwtAuthenticationServiceCollectionExtensions
     /// <summary>
     /// Registers JWT Bearer authentication for validating tokens issued by the platform.
     /// </summary>
-    public static IServiceCollection AddGsJwtAuthentication(
+    public static IServiceCollection AddJwtAuthentication(
         this IServiceCollection services,
         IConfiguration configuration,
         bool issueTokens = false)
@@ -46,6 +46,7 @@ public static class JwtAuthenticationServiceCollectionExtensions
             });
 
         services.AddAuthorization();
+        services.AddCurrentUserAccessor();
 
         if (issueTokens)
         {

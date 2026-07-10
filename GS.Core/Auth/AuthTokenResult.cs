@@ -1,7 +1,7 @@
 namespace GS.Core.Auth;
 
 public sealed record AuthTokenResult(
-    Guid UserId,
+    long UserId,
     string Email,
     string AccessToken,
     DateTimeOffset ExpiresAt);

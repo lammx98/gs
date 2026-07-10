@@ -14,7 +14,7 @@ namespace GS.Core.Extensions;
 
 public static class ObservabilityWebApplicationBuilderExtensions
 {
-    public static WebApplicationBuilder AddGsObservability(
+    public static WebApplicationBuilder AddObservability(
         this WebApplicationBuilder builder,
         string? serviceName = null,
         Action<ObservabilityOptions>? configure = null,

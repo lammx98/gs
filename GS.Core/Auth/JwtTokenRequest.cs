@@ -1,6 +1,6 @@
 namespace GS.Core.Auth;
 
 public sealed record JwtTokenRequest(
-    Guid UserId,
+    long UserId,
     string Email,
     string TenantId);

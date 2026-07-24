@@ -44,6 +44,8 @@ Build image (từ thư mục gốc repo `GS`):
 
 ```bash
 docker build -f GS.TenantService/Dockerfile -t gs-tenant-service .
+
+docker build --platform linux/amd64 -f GS.TenantService/Dockerfile -t gs-tenant-service .
 ```
 
 Chạy cùng stack local (dùng PostgreSQL container `postgres` trên network `local-shared-network`):

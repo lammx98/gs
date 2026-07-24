@@ -160,7 +160,13 @@ Tất cả strategy được đăng ký; chỉ active khi request có dữ liệ
 | JWT | Claim `tenant_id` (sau `UseAuthentication`) |
 | Message | `X-Tenant-Id` header khi consume |
 
-`TenantConsistencyMiddleware` so khớp các nguồn **có mặt** trong request. Chỉ cần 1 nguồn hợp lệ là đủ; nhiều nguồn khác nhau → `401 TenantMismatch`.
+`TenantConsistencyMiddleware` so khớp các nguồn **có mặt** trong request:
+
+1. Resolve từng identifier (GUID → `GetByTenantIdAsync`, ngược lại → `GetByTenantCodeAsync`)
+2. So sánh **`TenantId` nội bộ** (không so raw string `acme` vs GUID)
+3. Chỉ cần 1 nguồn hợp lệ là đủ; nhiều nguồn resolve ra **khác TenantId** → `401 TenantMismatch`
+
+Ví dụ hợp lệ: `X-Tenant-Id: acme` + JWT `tenant_id: <guid của acme>`.
 
 ---
 

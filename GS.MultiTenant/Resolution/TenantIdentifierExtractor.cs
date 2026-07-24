@@ -63,6 +63,11 @@ internal static class TenantIdentifierExtractor
             ?? principal.FindFirstValue("__tenant__");
     }
 
+    /// <summary>
+    /// Legacy string-equality check. Prefer resolving identifiers to
+    /// <see cref="Models.TenantModel.TenantId"/> before comparing (see
+    /// <c>TenantConsistencyMiddleware</c>).
+    /// </summary>
     public static void ValidateConsistency(IReadOnlyCollection<string> identifiers)
     {
         var distinct = identifiers

@@ -10,7 +10,7 @@
 #
 # Services:
 #   tenant-service (:5100 REST, :5101 gRPC) -> GS.TenantService
-#   OTLP (4317)            -> Grafana LGTM (traces, metrics, Grafana UI :3000)
+#   OTLP (4317)            -> Grafana LGTM (traces, metrics, Grafana UI :3200)
 #   Redis (:6379)          -> GS.MultiTenant distributed cache
 #   RabbitMQ (:5672)       -> MassTransit / event bus (management UI :15672)
 #
@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: GS.TenantService/Dockerfile
-    image: lammx98/gs-tenant-service:latest
+    image: gs-tenant-service:latest
     container_name: gs-tenant-service
     ports:
       - "5100:5000"
@@ -64,7 +64,7 @@ services:
     ports:
       - "4317:4317"   # OTLP gRPC — matches Observability:OpenTelemetry:OtlpEndpoint
       - "4318:4318"   # OTLP HTTP
-      - "3000:3000"   # Grafana UI (admin / admin on first login)
+      - "3200:3000"   # Grafana UI (admin / admin on first login)
     networks:
       - gs-internal
     restart: unless-stopped
@@ -74,7 +74,7 @@ services:
     container_name: gs-redis
     ports:
       - "6379:6379"
-    healthcheck:
+    healthcheck: 
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s

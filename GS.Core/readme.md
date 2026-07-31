@@ -236,6 +236,36 @@ Redis: đăng ký `IDistributedCache` trước (vd. `AddStackExchangeRedisCache`
 
 ---
 
+## AtomicSequence (`IAtomicSequenceGenerator`)
+
+Redis atomic counter dùng lệnh `INCR` — nhanh, không trùng giữa các instance.
+
+| Key | Ví dụ |
+|-----|--------|
+| `seq:yyyyMMdd` | `seq:20260729` |
+| `seq:{scope}:yyyyMMdd` | `seq:acme:20260729` (khi truyền scope, vd. tenant) |
+
+TTL mặc định **48 giờ** (cấu hình được 24–48h) — set atomic cùng lần `INCR` đầu tiên trong ngày.
+
+```csharp
+services.AddAtomicSequence(configuration);
+
+var next = await sequence.GetNextDailyAsync(DateOnly.FromDateTime(DateTime.UtcNow));
+var nextForTenant = await sequence.GetNextDailyAsync(date, scope: tenantId);
+```
+
+```json
+{
+  "AtomicSequence": {
+    "RedisConnectionString": "localhost:6379",
+    "KeyPrefix": "seq",
+    "KeyTtl": "2.00:00:00"
+  }
+}
+```
+
+---
+
 ## StaleWhileRevalidateCache\<T\>
 
 Cache SWR cho use case cần **refresh nền** khi entry stale (khác `ILayeredCache` dùng get/set/clear tường minh):
@@ -310,10 +340,12 @@ app.RunWithObservability();
 | `AddJwtAuthentication()` | JWT Bearer validation |
 | `AddMediatR(assembly)` | MediatR + FluentValidation pipeline |
 | `AddLayeredCache()` | `ILayeredCache` |
+| `AddAtomicSequence()` | Redis `INCR` daily/custom sequence |
 | `SendResultAsync()` | FastEndpoints → JSON response |
 | `ToActionResult()` | MVC → JSON response |
 | `Result` / `Result<T>` | Functional error handling |
 | `ILayeredCache` | Memory/Redis layered cache |
+| `IAtomicSequenceGenerator` | Redis atomic counter (`seq:yyyyMMdd`) |
 | `IPasswordHasherService` | Hash/verify password |
 
 ---

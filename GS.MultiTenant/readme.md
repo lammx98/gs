@@ -114,7 +114,7 @@ Entity implement `ITenantEntity` để tự động áp global query filter trê
 "HostTemplate": "__tenant__.*"
 ```
 
-Dev local: thêm `127.0.0.1 acme.localhost` vào hosts, gọi `http://acme.localhost:5193/...`
+Dev local: thêm `127.0.0.1 acme.localhost` vào hosts, gọi `http://acme.localhost:5010/...`
 
 ---
 

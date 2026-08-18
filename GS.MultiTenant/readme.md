@@ -78,6 +78,38 @@ Request (header / subdomain / JWT claim)
 
 Entity implement `ITenantEntity` để tự động áp global query filter trên shared DB.
 
+### Shared records across tenants
+
+Use `ITenantSharedEntity` for data that may belong to one tenant or be shared by every tenant.
+`TenantId = null` is a shared record; otherwise it belongs to that tenant.
+
+```csharp
+public class ReferenceData : ITenantSharedEntity
+{
+    public long Id { get; set; }
+    public string? TenantId { get; set; } // null = shared
+}
+```
+
+`TenantBaseDbContext` enables this global filter by default. A tenant-scoped query returns only:
+
+```text
+TenantId == currentTenantId OR TenantId IS NULL
+```
+
+For a context that adds entity types after its call to `base.OnModelCreating`, invoke the reusable extension at the end of its model configuration:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    base.OnModelCreating(modelBuilder);
+    // Other entity configuration...
+    modelBuilder.ApplyTenantSharedEntityQueryFilters(this);
+}
+```
+
+The filter denies all data when no tenant is resolved. As with every EF Core global query filter, `IgnoreQueryFilters()` bypasses this isolation and must be limited to trusted administrative operations.
+
 ### Config service nghiệp vụ
 
 ```json

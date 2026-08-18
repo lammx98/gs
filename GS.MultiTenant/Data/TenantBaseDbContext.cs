@@ -4,6 +4,7 @@ using GS.Core.Data;
 using GS.Core.Ids;
 using GS.MultiTenant.Abstractions;
 using GS.MultiTenant.Configuration;
+using GS.MultiTenant.Extensions;
 using GS.MultiTenant.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -16,6 +17,7 @@ namespace GS.MultiTenant.Data;
 /// </summary>
 public abstract class TenantBaseDbContext : MultiTenantDbContext
 {
+    private const string TenantQueryFilterName = "GS.MultiTenant.Tenant";
     private readonly IConnectionStringResolver _connectionStringResolver;
     private readonly ISnowflakeIdGenerator? _snowflakeIdGenerator;
 
@@ -65,13 +67,37 @@ public abstract class TenantBaseDbContext : MultiTenantDbContext
 
     protected abstract void ConfigureProvider(DbContextOptionsBuilder optionsBuilder, string connectionString);
 
+    /// <summary>
+    /// The internal identifier used by tenant query filters. A missing tenant remains
+    /// <see langword="null"/> so filters deny access rather than accidentally exposing shared data.
+    /// </summary>
+    public string? CurrentTenantId
+    {
+        get
+        {
+            var tenant = TenantInfo as TenantModel;
+
+            return !string.IsNullOrWhiteSpace(tenant?.Id)
+                ? tenant.Id
+                : !string.IsNullOrWhiteSpace(tenant?.Identifier)
+                    ? tenant.Identifier
+                    : null;
+        }
+    }
+
+    /// <summary>Whether the current context is routed to a dedicated tenant database.</summary>
+    public bool UsesDedicatedTenantDatabase => (TenantInfo as TenantModel)?.UsesDedicatedDatabase == true;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
-            if (!typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType))
+            if (entityType.BaseType is not null
+                || entityType.IsOwned()
+                || !typeof(ITenantEntity).IsAssignableFrom(entityType.ClrType)
+                || typeof(ITenantSharedEntity).IsAssignableFrom(entityType.ClrType))
             {
                 continue;
             }
@@ -82,19 +108,21 @@ public abstract class TenantBaseDbContext : MultiTenantDbContext
 
             method.Invoke(this, [modelBuilder]);
         }
+
+        modelBuilder.ApplyTenantSharedEntityQueryFilters(this);
     }
 
     private void ConfigureTenantFilter<TEntity>(ModelBuilder modelBuilder)
         where TEntity : class, ITenantEntity
     {
-        modelBuilder.Entity<TEntity>().HasQueryFilter(CreateTenantFilter<TEntity>());
+        modelBuilder.Entity<TEntity>().HasQueryFilter(TenantQueryFilterName, CreateTenantFilter<TEntity>());
     }
 
     private Expression<Func<TEntity, bool>> CreateTenantFilter<TEntity>()
         where TEntity : class, ITenantEntity
     {
         return entity =>
-            (TenantInfo as TenantModel)!.UsesDedicatedDatabase
-            || entity.TenantId == ((TenantInfo as TenantModel)!.Id ?? (TenantInfo as TenantModel)!.Identifier);
+            UsesDedicatedTenantDatabase
+            || entity.TenantId == CurrentTenantId;
     }
 }

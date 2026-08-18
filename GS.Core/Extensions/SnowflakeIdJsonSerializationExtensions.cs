@@ -60,6 +60,7 @@ public static class SnowflakeIdJsonSerializationExtensions
     {
         ArgumentNullException.ThrowIfNull(options);
         options.AddSchemaTransformer(SnowflakeIdOpenApiSchemaTransformer.Instance);
+        options.AddOperationTransformer(SnowflakeIdOpenApiOperationTransformer.Instance);
         return options;
     }
 }

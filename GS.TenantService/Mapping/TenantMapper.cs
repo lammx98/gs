@@ -1,13 +1,12 @@
 using GS.MultiTenant.Models;
-using GS.TenantService.Data;
 
 namespace GS.TenantService.Mapping;
 
 internal static class TenantMapper
 {
-    public static TenantModel ToModel(TenantEntity entity) => new()
+    public static TenantModel ToModel(Data.TenantEntity entity) => new()
     {
-        Id = entity.Id.ToString(),
+        Id = entity.Id,
         Identifier = entity.TenantCode,
         TenantName = entity.TenantName,
         Tier = entity.Tier,

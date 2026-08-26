@@ -26,12 +26,7 @@ public sealed class TenantResolverGrpcService : TenantResolver.TenantResolverBas
         GetByTenantIdRequest request,
         ServerCallContext context)
     {
-        if (!Guid.TryParse(request.TenantId, out var tenantId))
-        {
-            return new GetTenantResponse { Found = false };
-        }
-
-        var tenant = await _tenantService.GetByTenantIdAsync(tenantId, context.CancellationToken);
+        var tenant = await _tenantService.GetByTenantIdAsync(request.TenantId, context.CancellationToken);
         return ToResponse(tenant);
     }
 

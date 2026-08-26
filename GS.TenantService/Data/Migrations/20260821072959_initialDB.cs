@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace GS.TenantService.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class initialDB : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -15,7 +15,7 @@ namespace GS.TenantService.Data.Migrations
                 name: "Tenants",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Id = table.Column<string>(type: "text", nullable: false),
                     TenantCode = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     TenantName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
                     Tier = table.Column<int>(type: "integer", nullable: false),

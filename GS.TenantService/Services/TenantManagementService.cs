@@ -36,7 +36,7 @@ public sealed class TenantManagementService : ITenantManagementService
         return entity is null ? null : TenantMapper.ToModel(entity);
     }
 
-    public async Task<TenantModel?> GetByTenantIdAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    public async Task<TenantModel?> GetByTenantIdAsync(string tenantId, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.Tenants
             .AsNoTracking()
@@ -60,9 +60,9 @@ public sealed class TenantManagementService : ITenantManagementService
             request.DatabasePort,
             request.CredentialsRef);
 
-        var entity = new TenantEntity
+        var entity = new Data.TenantEntity
         {
-            Id = Guid.NewGuid(),
+            Id = tenantCode,
             TenantCode = tenantCode,
             TenantName = request.TenantName.Trim(),
             Tier = request.Tier,

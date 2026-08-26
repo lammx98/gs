@@ -24,9 +24,8 @@ namespace GS.TenantService.Data.Migrations
 
             modelBuilder.Entity("GS.TenantService.Data.TenantEntity", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

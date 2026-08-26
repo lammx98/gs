@@ -9,7 +9,7 @@ public interface ITenantManagementService
 
     Task<TenantModel?> GetByTenantCodeAsync(string tenantCode, CancellationToken cancellationToken = default);
 
-    Task<TenantModel?> GetByTenantIdAsync(Guid tenantId, CancellationToken cancellationToken = default);
+    Task<TenantModel?> GetByTenantIdAsync(string tenantId, CancellationToken cancellationToken = default);
 
     Task<TenantModel> CreateAsync(CreateTenantRequest request, CancellationToken cancellationToken = default);
 

@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GS.TenantService.Data.Migrations
 {
     [DbContext(typeof(TenantDbContext))]
-    [Migration("20260708020942_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260821072959_initialDB")]
+    partial class initialDB
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -27,9 +27,8 @@ namespace GS.TenantService.Data.Migrations
 
             modelBuilder.Entity("GS.TenantService.Data.TenantEntity", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

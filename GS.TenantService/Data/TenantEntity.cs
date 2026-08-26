@@ -4,7 +4,7 @@ namespace GS.TenantService.Data;
 
 public class TenantEntity
 {
-    public Guid Id { get; set; }
+    public string Id { get; set; } = string.Empty;
 
     public string TenantCode { get; set; } = string.Empty;
 

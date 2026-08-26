@@ -36,10 +36,10 @@ public class TenantsController : ControllerBase
         return Ok(tenants);
     }
 
-    [HttpGet("id/{tenantId:guid}")]
+    [HttpGet("id/{tenantId}")]
     [ProducesResponseType(typeof(TenantModel), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<TenantModel>> GetById(Guid tenantId, CancellationToken cancellationToken)
+    public async Task<ActionResult<TenantModel>> GetById(string tenantId, CancellationToken cancellationToken)
     {
         var tenant = await _tenantService.GetByTenantIdAsync(tenantId, cancellationToken);
         return tenant is null ? NotFound() : Ok(tenant);

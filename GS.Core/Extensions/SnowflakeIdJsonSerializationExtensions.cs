@@ -28,9 +28,10 @@ public static class SnowflakeIdJsonSerializationExtensions
 
     /// <summary>
     /// Applies snowflake ID string converters to the given <see cref="JsonSerializerOptions"/>.
-    /// Only members named <c>Id</c> / <c>*Id</c> (or annotated with
-    /// <see cref="Ids.SnowflakeIdAttribute"/>) are written/read as strings — other
-    /// <see cref="long"/> values remain JSON numbers.
+    /// Only members named <c>Id</c> / <c>*Id</c> / <c>*Ids</c> (or annotated with
+    /// <see cref="Ids.SnowflakeIdAttribute"/>) are written/read as strings — including
+    /// collections such as <c>List&lt;long&gt;</c>. Other <see cref="long"/> values
+    /// remain JSON numbers.
     /// </summary>
     public static JsonSerializerOptions ConfigureSnowflakeIdsAsStrings(this JsonSerializerOptions options)
     {

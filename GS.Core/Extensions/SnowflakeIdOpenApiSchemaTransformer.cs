@@ -5,7 +5,8 @@ using Microsoft.OpenApi;
 namespace GS.Core.Extensions;
 
 /// <summary>
-/// Rewrites OpenAPI schemas for snowflake ID members from int64 to string.
+/// Rewrites OpenAPI schemas for snowflake ID members from int64 to string
+/// (including arrays/lists of IDs).
 /// </summary>
 internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 {
@@ -19,7 +20,15 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
         if (context.JsonPropertyInfo is { } property
             && SnowflakeIdNaming.IsSnowflakeIdJsonProperty(property))
         {
-            ApplyStringSchema(schema);
+            if (SnowflakeIdNaming.IsLongScalarType(property.PropertyType))
+            {
+                ApplyStringSchema(schema);
+            }
+            else
+            {
+                ApplyStringItemsSchema(schema);
+            }
+
             return Task.CompletedTask;
         }
 
@@ -27,17 +36,20 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
         if (parameter is not null && SnowflakeIdNaming.IsSnowflakeIdName(parameter.Name))
         {
             var type = parameter.Type ?? parameter.ModelMetadata?.ModelType;
-            if (IsLongType(type) || IsInt64Schema(schema))
+            if ((type is not null && SnowflakeIdNaming.IsLongScalarType(type))
+                || IsInt64Schema(schema))
             {
                 ApplyStringSchema(schema);
+            }
+            else if (type is not null
+                     && SnowflakeIdNaming.TryGetLongElementType(type, out _))
+            {
+                ApplyStringItemsSchema(schema);
             }
         }
 
         return Task.CompletedTask;
     }
-
-    private static bool IsLongType(Type? type) =>
-        type == typeof(long) || type == typeof(long?);
 
     private static bool IsInt64Schema(OpenApiSchema schema) =>
         string.Equals(schema.Format, "int64", StringComparison.OrdinalIgnoreCase)
@@ -48,6 +60,17 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
     {
         schema.Type = JsonSchemaType.String;
         schema.Format = null;
+    }
+
+    private static void ApplyStringItemsSchema(OpenApiSchema schema)
+    {
+        if (schema.Items is OpenApiSchema items)
+        {
+            ApplyStringSchema(items);
+            return;
+        }
+
+        schema.Items = new OpenApiSchema { Type = JsonSchemaType.String };
     }
 }
 
@@ -67,12 +90,28 @@ internal sealed class SnowflakeIdOpenApiOperationTransformer : IOpenApiOperation
     {
         foreach (var parameter in operation.Parameters ?? [])
         {
-            if (parameter is OpenApiParameter { Schema: OpenApiSchema schema }
-                && SnowflakeIdNaming.IsSnowflakeIdName(parameter.Name)
-                && IsInt64Schema(schema))
+            if (parameter is not OpenApiParameter { Schema: OpenApiSchema schema }
+                || !SnowflakeIdNaming.IsSnowflakeIdName(parameter.Name))
+            {
+                continue;
+            }
+
+            if (IsInt64Schema(schema))
             {
                 schema.Type = JsonSchemaType.String;
                 schema.Format = null;
+            }
+            else if (IsArraySchema(schema))
+            {
+                if (schema.Items is OpenApiSchema items)
+                {
+                    items.Type = JsonSchemaType.String;
+                    items.Format = null;
+                }
+                else
+                {
+                    schema.Items = new OpenApiSchema { Type = JsonSchemaType.String };
+                }
             }
         }
 
@@ -83,4 +122,9 @@ internal sealed class SnowflakeIdOpenApiOperationTransformer : IOpenApiOperation
         string.Equals(schema.Format, "int64", StringComparison.OrdinalIgnoreCase)
         || schema.Type is JsonSchemaType.Integer
             or (JsonSchemaType.Integer | JsonSchemaType.Null);
+
+    private static bool IsArraySchema(OpenApiSchema schema) =>
+        schema.Type is JsonSchemaType.Array
+            or (JsonSchemaType.Array | JsonSchemaType.Null)
+        || schema.Items is not null;
 }

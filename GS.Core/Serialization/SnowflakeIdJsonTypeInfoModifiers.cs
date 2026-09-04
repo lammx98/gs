@@ -3,7 +3,7 @@ using System.Text.Json.Serialization.Metadata;
 namespace GS.Core.Serialization;
 
 /// <summary>
-/// Applies snowflake string converters only to matching <see cref="long"/> / <see cref="Nullable{T}"/> members.
+/// Applies snowflake string converters to matching scalar and collection ID members.
 /// </summary>
 public static class SnowflakeIdJsonTypeInfoModifiers
 {
@@ -21,9 +21,19 @@ public static class SnowflakeIdJsonTypeInfoModifiers
                 continue;
             }
 
-            property.CustomConverter = property.PropertyType == typeof(long)
-                ? SnowflakeIdJsonConverter.Instance
-                : NullableSnowflakeIdJsonConverter.Instance;
+            if (property.PropertyType == typeof(long))
+            {
+                property.CustomConverter = SnowflakeIdJsonConverter.Instance;
+            }
+            else if (property.PropertyType == typeof(long?))
+            {
+                property.CustomConverter = NullableSnowflakeIdJsonConverter.Instance;
+            }
+            else
+            {
+                property.CustomConverter = SnowflakeIdCollectionJsonConverterFactory.Instance
+                    .CreateConverter(property.PropertyType, typeInfo.Options);
+            }
         }
     }
 }

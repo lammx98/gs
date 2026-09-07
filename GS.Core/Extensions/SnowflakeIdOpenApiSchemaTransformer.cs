@@ -22,11 +22,11 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
         {
             if (SnowflakeIdNaming.IsLongScalarType(property.PropertyType))
             {
-                ApplyStringSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringSchema(schema);
             }
             else
             {
-                ApplyStringItemsSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(schema);
             }
 
             return Task.CompletedTask;
@@ -37,40 +37,30 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
         {
             var type = parameter.Type ?? parameter.ModelMetadata?.ModelType;
             if ((type is not null && SnowflakeIdNaming.IsLongScalarType(type))
-                || IsInt64Schema(schema))
+                || SnowflakeIdOpenApiRewriter.IsInt64Schema(schema))
             {
-                ApplyStringSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringSchema(schema);
             }
             else if (type is not null
                      && SnowflakeIdNaming.TryGetLongElementType(type, out _))
             {
-                ApplyStringItemsSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(schema);
             }
+
+            return Task.CompletedTask;
+        }
+
+        // Named schemas such as ListOfInt64 are generated from List<long> without a
+        // property name, so the *Ids convention above never runs. ID collection
+        // properties $ref that shared schema, which is why they stayed integer[].
+        if (context.JsonPropertyInfo is null
+            && context.JsonTypeInfo is { Type: var clrType }
+            && SnowflakeIdNaming.TryGetLongElementType(clrType, out _))
+        {
+            SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(schema);
         }
 
         return Task.CompletedTask;
-    }
-
-    private static bool IsInt64Schema(OpenApiSchema schema) =>
-        string.Equals(schema.Format, "int64", StringComparison.OrdinalIgnoreCase)
-        || schema.Type is JsonSchemaType.Integer
-            or (JsonSchemaType.Integer | JsonSchemaType.Null);
-
-    private static void ApplyStringSchema(OpenApiSchema schema)
-    {
-        schema.Type = JsonSchemaType.String;
-        schema.Format = null;
-    }
-
-    private static void ApplyStringItemsSchema(OpenApiSchema schema)
-    {
-        if (schema.Items is OpenApiSchema items)
-        {
-            ApplyStringSchema(items);
-            return;
-        }
-
-        schema.Items = new OpenApiSchema { Type = JsonSchemaType.String };
     }
 }
 
@@ -90,41 +80,178 @@ internal sealed class SnowflakeIdOpenApiOperationTransformer : IOpenApiOperation
     {
         foreach (var parameter in operation.Parameters ?? [])
         {
-            if (parameter is not OpenApiParameter { Schema: OpenApiSchema schema }
+            if (parameter is not OpenApiParameter { Schema: { } schema }
                 || !SnowflakeIdNaming.IsSnowflakeIdName(parameter.Name))
             {
                 continue;
             }
 
-            if (IsInt64Schema(schema))
-            {
-                schema.Type = JsonSchemaType.String;
-                schema.Format = null;
-            }
-            else if (IsArraySchema(schema))
-            {
-                if (schema.Items is OpenApiSchema items)
-                {
-                    items.Type = JsonSchemaType.String;
-                    items.Format = null;
-                }
-                else
-                {
-                    schema.Items = new OpenApiSchema { Type = JsonSchemaType.String };
-                }
-            }
+            SnowflakeIdOpenApiRewriter.RewriteIdSchema(schema);
         }
 
         return Task.CompletedTask;
     }
+}
 
-    private static bool IsInt64Schema(OpenApiSchema schema) =>
-        string.Equals(schema.Format, "int64", StringComparison.OrdinalIgnoreCase)
-        || schema.Type is JsonSchemaType.Integer
-            or (JsonSchemaType.Integer | JsonSchemaType.Null);
+/// <summary>
+/// Last pass after schemas have been collected into <c>components.schemas</c>.
+/// Property-level transformers cannot rewrite a <c>$ref</c> to <c>ListOfInt64</c>;
+/// this mutates that shared array schema (and any leftover inline *Ids arrays).
+/// </summary>
+internal sealed class SnowflakeIdOpenApiDocumentTransformer : IOpenApiDocumentTransformer
+{
+    public static SnowflakeIdOpenApiDocumentTransformer Instance { get; } = new();
 
-    private static bool IsArraySchema(OpenApiSchema schema) =>
-        schema.Type is JsonSchemaType.Array
+    public Task TransformAsync(
+        OpenApiDocument document,
+        OpenApiDocumentTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        SnowflakeIdOpenApiRewriter.RewriteDocument(document);
+        return Task.CompletedTask;
+    }
+}
+
+internal static class SnowflakeIdOpenApiRewriter
+{
+    public static void RewriteDocument(OpenApiDocument document)
+    {
+        if (document.Components?.Schemas is not { } schemas)
+        {
+            return;
+        }
+
+        foreach (var schema in schemas.Values)
+        {
+            // Shared List<long> schemas (ListOfInt64, IReadOnlyListOfInt64, ...)
+            if (schema is OpenApiSchema concrete && IsInt64ArraySchema(concrete))
+            {
+                ApplyStringItemsSchema(concrete);
+            }
+
+            RewriteNestedIdProperties(schema);
+        }
+    }
+
+    public static void RewriteIdSchema(IOpenApiSchema schema)
+    {
+        switch (schema)
+        {
+            case OpenApiSchema concrete when IsInt64Schema(concrete):
+                ApplyStringSchema(concrete);
+                break;
+            case OpenApiSchema concrete when IsInt64ArraySchema(concrete):
+                ApplyStringItemsSchema(concrete);
+                break;
+            case OpenApiSchemaReference { Target: OpenApiSchema target }:
+                RewriteIdSchema(target);
+                break;
+        }
+    }
+
+    public static void ApplyStringSchema(OpenApiSchema schema)
+    {
+        var type = JsonSchemaType.String;
+        if (HasNull(schema.Type))
+        {
+            type |= JsonSchemaType.Null;
+        }
+
+        schema.Type = type;
+        schema.Format = null;
+    }
+
+    public static void ApplyStringItemsSchema(OpenApiSchema schema)
+    {
+        var type = JsonSchemaType.Array;
+        if (HasNull(schema.Type))
+        {
+            type |= JsonSchemaType.Null;
+        }
+
+        schema.Type = type;
+        schema.Format = null;
+
+        if (schema.Items is OpenApiSchema items)
+        {
+            ApplyStringSchema(items);
+            return;
+        }
+
+        schema.Items = new OpenApiSchema { Type = JsonSchemaType.String };
+    }
+
+    public static bool IsInt64Schema(IOpenApiSchema schema)
+    {
+        schema = Resolve(schema);
+        return string.Equals(schema.Format, "int64", StringComparison.OrdinalIgnoreCase)
+            || schema.Type is JsonSchemaType.Integer
+                or (JsonSchemaType.Integer | JsonSchemaType.Null);
+    }
+
+    public static bool IsInt64ArraySchema(IOpenApiSchema schema)
+    {
+        schema = Resolve(schema);
+        if (!IsArraySchema(schema) || schema.Items is null)
+        {
+            return false;
+        }
+
+        return IsInt64Schema(schema.Items);
+    }
+
+    private static void RewriteNestedIdProperties(IOpenApiSchema? schema)
+    {
+        if (schema is not OpenApiSchema concrete)
+        {
+            return;
+        }
+
+        if (concrete.Properties is { } properties)
+        {
+            foreach (var (name, property) in properties)
+            {
+                if (SnowflakeIdNaming.IsSnowflakeIdName(name))
+                {
+                    RewriteIdSchema(property);
+                }
+
+                RewriteNestedIdProperties(property);
+            }
+        }
+
+        RewriteNestedIdProperties(concrete.Items);
+        RewriteNestedIdProperties(concrete.Not);
+        RewriteNestedIdProperties(concrete.AdditionalProperties);
+        RewriteNestedIdProperties(concrete.AllOf);
+        RewriteNestedIdProperties(concrete.OneOf);
+        RewriteNestedIdProperties(concrete.AnyOf);
+    }
+
+    private static void RewriteNestedIdProperties(IList<IOpenApiSchema>? schemas)
+    {
+        if (schemas is null)
+        {
+            return;
+        }
+
+        foreach (var schema in schemas)
+        {
+            RewriteNestedIdProperties(schema);
+        }
+    }
+
+    private static bool IsArraySchema(IOpenApiSchema schema)
+    {
+        schema = Resolve(schema);
+        return schema.Type is JsonSchemaType.Array
             or (JsonSchemaType.Array | JsonSchemaType.Null)
-        || schema.Items is not null;
+            || schema.Items is not null;
+    }
+
+    private static IOpenApiSchema Resolve(IOpenApiSchema schema) =>
+        schema is OpenApiSchemaReference { Target: { } target } ? target : schema;
+
+    private static bool HasNull(JsonSchemaType? type) =>
+        type is { } value && value.HasFlag(JsonSchemaType.Null);
 }

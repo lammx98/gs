@@ -55,13 +55,15 @@ public static class SnowflakeIdJsonSerializationExtensions
     }
 
     /// <summary>
-    /// Maps snowflake ID schemas to OpenAPI <c>string</c> so generated clients stay JS-safe.
+    /// Maps snowflake ID schemas to OpenAPI <c>string</c> so generated clients stay JS-safe,
+    /// including collections such as <c>List&lt;long&gt;</c> (<c>ListOfInt64</c>).
     /// </summary>
     public static OpenApiOptions MapSnowflakeIdsAsStrings(this OpenApiOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.AddSchemaTransformer(SnowflakeIdOpenApiSchemaTransformer.Instance);
         options.AddOperationTransformer(SnowflakeIdOpenApiOperationTransformer.Instance);
+        options.AddDocumentTransformer(SnowflakeIdOpenApiDocumentTransformer.Instance);
         return options;
     }
 }

@@ -2,7 +2,7 @@ namespace GS.Core.Abstractions;
 
 public interface IPricingEntity
 {
-    int Quantity { get; set; }
+    decimal Quantity { get; set; }
     string? Unit { get; set; }
     decimal UnitPrice { get; set; }
 

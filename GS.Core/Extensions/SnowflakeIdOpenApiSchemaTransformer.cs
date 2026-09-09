@@ -22,11 +22,15 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
         {
             if (SnowflakeIdNaming.IsLongScalarType(property.PropertyType))
             {
-                SnowflakeIdOpenApiRewriter.ApplyStringSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringSchema(
+                    schema,
+                    forceNullable: SnowflakeIdNaming.IsNullableLongScalarType(property.PropertyType));
             }
-            else
+            else if (SnowflakeIdNaming.TryGetLongElementType(property.PropertyType, out var elementType))
             {
-                SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(
+                    schema,
+                    forceNullableItems: SnowflakeIdNaming.IsNullableLongScalarType(elementType));
             }
 
             return Task.CompletedTask;
@@ -39,12 +43,17 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
             if ((type is not null && SnowflakeIdNaming.IsLongScalarType(type))
                 || SnowflakeIdOpenApiRewriter.IsInt64Schema(schema))
             {
-                SnowflakeIdOpenApiRewriter.ApplyStringSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringSchema(
+                    schema,
+                    forceNullable: type is not null
+                        && SnowflakeIdNaming.IsNullableLongScalarType(type));
             }
             else if (type is not null
-                     && SnowflakeIdNaming.TryGetLongElementType(type, out _))
+                     && SnowflakeIdNaming.TryGetLongElementType(type, out var elementType))
             {
-                SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(schema);
+                SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(
+                    schema,
+                    forceNullableItems: SnowflakeIdNaming.IsNullableLongScalarType(elementType));
             }
 
             return Task.CompletedTask;
@@ -55,9 +64,11 @@ internal sealed class SnowflakeIdOpenApiSchemaTransformer : IOpenApiSchemaTransf
         // properties $ref that shared schema, which is why they stayed integer[].
         if (context.JsonPropertyInfo is null
             && context.JsonTypeInfo is { Type: var clrType }
-            && SnowflakeIdNaming.TryGetLongElementType(clrType, out _))
+            && SnowflakeIdNaming.TryGetLongElementType(clrType, out var sharedElementType))
         {
-            SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(schema);
+            SnowflakeIdOpenApiRewriter.ApplyStringItemsSchema(
+                schema,
+                forceNullableItems: SnowflakeIdNaming.IsNullableLongScalarType(sharedElementType));
         }
 
         return Task.CompletedTask;
@@ -138,6 +149,7 @@ internal static class SnowflakeIdOpenApiRewriter
         switch (schema)
         {
             case OpenApiSchema concrete when IsInt64Schema(concrete):
+                // Document/operation passes have no CLR type; rely on Null already on the schema.
                 ApplyStringSchema(concrete);
                 break;
             case OpenApiSchema concrete when IsInt64ArraySchema(concrete):
@@ -149,10 +161,14 @@ internal static class SnowflakeIdOpenApiRewriter
         }
     }
 
-    public static void ApplyStringSchema(OpenApiSchema schema)
+    /// <param name="forceNullable">
+    /// When true (CLR type is <c>long?</c>), emit <c>string | null</c> even if the
+    /// upstream schema dropped nullability because of a custom JsonConverter.
+    /// </param>
+    public static void ApplyStringSchema(OpenApiSchema schema, bool forceNullable = false)
     {
         var type = JsonSchemaType.String;
-        if (HasNull(schema.Type))
+        if (forceNullable || HasNull(schema.Type))
         {
             type |= JsonSchemaType.Null;
         }
@@ -161,7 +177,12 @@ internal static class SnowflakeIdOpenApiRewriter
         schema.Format = null;
     }
 
-    public static void ApplyStringItemsSchema(OpenApiSchema schema)
+    /// <param name="forceNullableItems">
+    /// When true (element CLR type is <c>long?</c>), item schemas become <c>string | null</c>.
+    /// </param>
+    public static void ApplyStringItemsSchema(
+        OpenApiSchema schema,
+        bool forceNullableItems = false)
     {
         var type = JsonSchemaType.Array;
         if (HasNull(schema.Type))
@@ -174,11 +195,16 @@ internal static class SnowflakeIdOpenApiRewriter
 
         if (schema.Items is OpenApiSchema items)
         {
-            ApplyStringSchema(items);
+            ApplyStringSchema(items, forceNullableItems);
             return;
         }
 
-        schema.Items = new OpenApiSchema { Type = JsonSchemaType.String };
+        schema.Items = new OpenApiSchema
+        {
+            Type = forceNullableItems
+                ? JsonSchemaType.String | JsonSchemaType.Null
+                : JsonSchemaType.String
+        };
     }
 
     public static bool IsInt64Schema(IOpenApiSchema schema)

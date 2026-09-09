@@ -59,6 +59,13 @@ public static class SnowflakeIdNaming
         type == typeof(long) || type == typeof(long?);
 
     /// <summary>
+    /// True for <see cref="Nullable{T}"/> of <see cref="long"/> (OpenAPI may omit
+    /// <c>null</c> once a custom converter is applied, so callers must check CLR type).
+    /// </summary>
+    public static bool IsNullableLongScalarType(Type type) =>
+        type == typeof(long?);
+
+    /// <summary>
     /// Returns true when <paramref name="type"/> is an array or common collection of
     /// <see cref="long"/> / <see cref="Nullable{T}"/>.
     /// </summary>

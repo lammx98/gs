@@ -57,6 +57,8 @@ public static class SnowflakeIdJsonSerializationExtensions
     /// <summary>
     /// Maps snowflake ID schemas to OpenAPI <c>string</c> so generated clients stay JS-safe,
     /// including collections such as <c>List&lt;long&gt;</c> (<c>ListOfInt64</c>).
+    /// Nullable CLR types (<c>long?</c>, <c>List&lt;long?&gt;</c> items) become
+    /// <c>string | null</c> even when custom converters strip upstream nullability.
     /// </summary>
     public static OpenApiOptions MapSnowflakeIdsAsStrings(this OpenApiOptions options)
     {
